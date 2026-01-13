@@ -2,7 +2,7 @@
 
 This script implements a deterministic maze environment and compares two RL approaches:
 - UCB-Hoeffding sparse-reward-aware Q-learning (UCB / UCB-H variants)
-- epsilon-greedy Q-learning baseline
+- ε-greedy Q-learning baseline
 
 The main program runs multiple experiments on two fixed maze seeds and saves reward curves, path visualizations, Q-tables, and summary statistics.
 
@@ -32,7 +32,7 @@ The main program runs multiple experiments on two fixed maze seeds and saves rew
 - The main flow always uses this generator; `MazeEnv._generate_maze()` is only used when no external grid is provided.
 
 ## Algorithms
-### 1) QLearningUCBHoeffdingSparse (UCB with sparse reward awareness)
+### 1) QLearning UCB Hoeffding Sparse (UCB with sparse reward awareness)
 - Goal: improve exploration in sparse reward settings.
 - Q initialization: `Q(s,a) = s = sparse_fraction * H`.
 - V initialization: `0.0`.
@@ -58,7 +58,7 @@ The main program runs multiple experiments on two fixed maze seeds and saves rew
 - The learning-rate schedule `alpha = (H + 1) / (H + t)` is a decreasing step size commonly used in finite-horizon tabular settings to temper updates as visit count `t` grows. It emphasizes early optimistic updates while stabilizing later.
 - Q is initialized to `s = sparse_fraction * H` to encode optimistic values in sparse-reward tasks, encouraging exploration before enough positive rewards are observed. Larger initialization yields more optimistic exploration; smaller values reduce that effect.
 
-### 2) QLearningEpsilonGreedy (baseline)
+### 2) QLearning εGreedy (baseline)
 - Q-learning update:
   - `Q(s,a) <- Q(s,a) + alpha * (r + gamma * max_a' Q(s',a') - Q(s,a))`
 - Behavior policy: fixed epsilon-greedy (no decay).
