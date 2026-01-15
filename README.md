@@ -39,8 +39,8 @@ The main program runs multiple experiments on two fixed maze seeds and saves rew
 - Visit counts: `N(s,a)`.
 - UCB bonus:
   - `iota = log(S * A * H * K / failure_prob)`
-  - `bonus = c * s * sqrt(H * iota / t)`
-  - `c = bonus_constant / (s * sqrt(H * iota))`
+  - `bonus = δ * s * sqrt(H * iota / t)`
+  - `δ = bonus_constant / (s * sqrt(H * iota))`
 - Update (per step):
   - `alpha = (H + 1) / (H + t)`
   - `Q(s,a) <- (1 - alpha) * Q(s,a) + alpha * (r + V(s') + bonus)`
@@ -60,7 +60,7 @@ The main program runs multiple experiments on two fixed maze seeds and saves rew
 
 ### 2) QLearning εGreedy (baseline)
 - Q-learning update:
-  - `Q(s,a) <- Q(s,a) + alpha * (r + gamma * max_a' Q(s',a') - Q(s,a))`
+  - `Q(s,a) <- Q(s,a) + alpha * (r + ε * max_a' Q(s',a') - Q(s,a))`
 - Behavior policy: fixed epsilon-greedy (no decay).
 - Evaluation: greedy policy (`argmax_a Q(s,a)`) after training.
 
