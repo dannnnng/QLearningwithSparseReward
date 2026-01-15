@@ -38,39 +38,38 @@ The main program runs multiple experiments on two fixed maze seeds and saves rew
 - V initialization: `0.0`.
 - Visit counts: `N(s,a)`.
 - UCB bonus:
-  - `iota = log(S * A * H * K / failure_prob)`
-  - `bonus = δ * s * sqrt(H * iota / t)`
-  - `δ = bonus_constant / (s * sqrt(H * iota))`
+  - `ι = log(S * A * H * K / failure_prob)`
+  - `δ = 1`
 - Update (per step):
-  - `alpha = (H + 1) / (H + t)`
-  - `Q(s,a) <- (1 - alpha) * Q(s,a) + alpha * (r + V(s') + bonus)`
+  - `α = (H + 1) / (H + t)`
+  - `Q(s,a) <- (1 - α) * Q(s,a) + α * (r + V(s') + bonus)`
   - `V(s) <- min(s, max_a Q(s,a))`
 - Evaluation: greedy policy rollout; report success rate and average reward.
 - Extra: custom random pools (episode/step) for reproducible tie-breaking and sampling.
 
 #### Parameter Meaning and Rationale
 - `sparse_fraction`: defines the sparse-reward horizon proxy `s = sparse_fraction * H`. It sets the optimistic prior scale for Q-values and the exploration bonus magnitude. `0.01` models a highly sparse reward regime; `1.0` (UCB-H) removes sparsity assumptions and makes the bonus effectively scale with the full horizon.
-- `failure_prob`: appears in `iota = log(S * A * H * K / failure_prob)` as a confidence parameter. Smaller values increase the log term, producing a larger bonus (more exploration) and more conservative confidence; larger values reduce exploration pressure.
+- `failure_prob`: appears in `ι = log(S * A * H * K / failure_prob)` as a confidence parameter. Smaller values increase the log term, producing a larger bonus (more exploration) and more conservative confidence; larger values reduce exploration pressure.
 - `bonus_constant`: a multiplicative factor on the exploration bonus. `1.0` is a neutral baseline; increasing it strengthens exploration and can slow exploitation, decreasing it does the opposite.
 
 #### Design Notes
-- `c` is computed as `bonus_constant / (s * sqrt(H * iota))` so that the resulting bonus `c * s * sqrt(H * iota / t)` stays bounded and roughly on the same scale across different horizons and sparsity settings. This keeps the bonus from dominating rewards when `H` is large.
-- The learning-rate schedule `alpha = (H + 1) / (H + t)` is a decreasing step size commonly used in finite-horizon tabular settings to temper updates as visit count `t` grows. It emphasizes early optimistic updates while stabilizing later.
+- `c` is computed as `bonus_constant / (s * sqrt(H * ι))` so that the resulting bonus `c * s * sqrt(H * ι / t)` stays bounded and roughly on the same scale across different horizons and sparsity settings. This keeps the bonus from dominating rewards when `H` is large.
+- The learning-rate schedule `α = (H + 1) / (H + t)` is a decreasing step size commonly used in finite-horizon tabular settings to temper updates as visit count `t` grows. It emphasizes early optimistic updates while stabilizing later.
 - Q is initialized to `s = sparse_fraction * H` to encode optimistic values in sparse-reward tasks, encouraging exploration before enough positive rewards are observed. Larger initialization yields more optimistic exploration; smaller values reduce that effect.
 
 ### 2) QLearning εGreedy (baseline)
 - Q-learning update:
   - `Q(s,a) <- Q(s,a) + alpha * (r + ε * max_a' Q(s',a') - Q(s,a))`
-- Behavior policy: fixed epsilon-greedy (no decay).
+- Behavior policy: fixed ε-greedy (no decay).
 - Evaluation: greedy policy (`argmax_a Q(s,a)`) after training.
 
 ## Experiment Flow (main)
 The main function runs 6 experiments:
-- Maze seeds `1` and `12`, 3 runs each
+- Maze seeds `1` and `12`, runs each
 - Algorithms and settings:
   - `UCB` (`sparse_fraction=0.01`)
   - `UCB-H` (`sparse_fraction=1.0`)
-- `epsilon-greedy` (baseline)
+- `ε-greedy` (baseline)
 
 Each run outputs reward curves, Q tables, path visualizations, and config data, plus a three-method comparison plot on the same maze.
 
