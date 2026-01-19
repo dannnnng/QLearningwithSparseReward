@@ -64,8 +64,8 @@ The main program runs multiple experiments on two fixed maze seeds and saves rew
 - Evaluation: greedy policy (`argmax_a Q(s,a)`) after training.
 
 ## Experiment Flow (main)
-The main function runs 6 experiments:
-- Maze seeds `1` and `12`, runs each
+The main function runs following experiments:
+- Maze seeds `1` and `12`
 - Algorithms and settings:
   - `UCB` (`sparse_fraction=0.01`)
   - `UCB-H` (`sparse_fraction=1.0`)
