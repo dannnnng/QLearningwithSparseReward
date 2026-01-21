@@ -67,9 +67,9 @@ The main program runs multiple experiments on two fixed maze seeds and saves rew
 The main function runs following experiments:
 - Maze seeds `1` and `12`
 - Algorithms and settings:
-  - `UCB-H` (`sparse_aware=0.01`)
-  - `UCB-H` (`sparse_fraction=1.0`)
-- `ε-greedy` (baseline)
+  - `UCB-H/Proposed` (`sparse_aware=0.01`)
+  - baseline-`UCB-H` (`sparse_fraction=1.0`)
+- `ε-greedy` (`ε=0.1`）
 
 Each run outputs reward curves, Q tables, path visualizations, and config data, plus a three-method comparison plot on the same maze.
 
