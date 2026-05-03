@@ -17,13 +17,13 @@ Coordinate = Tuple[int, int]
 class MazeEnv:
     """Maze with deterministic transitions and terminal rewards."""
 
-    # Five actions: up/down/left/right + stay in place.
+    # 现在有5个动作：上下左右 + 原地不动
     ACTIONS: Sequence[Coordinate] = (
         (-1, 0),  # up
         (0, 1),  # right
         (1, 0),  # down
         (0, -1),  # left
-        (0, 0),  # stay (no movement)
+        (0, 0),  # stay (原地不动)
     )
 
     ACTION_NAMES = ["UP", "RIGHT", "DOWN", "LEFT", "STAY"]
@@ -35,17 +35,17 @@ class MazeEnv:
                  move_penalty: float = -0.2) -> None:
         self.size = size
         self.horizon = horizon
-        # Fixed seed for maze generation to keep the environment reproducible.
+        # 固定种子用于迷宫生成，保证环境可复现
         self.random = random.Random(seed)
         self.start: Coordinate = start if start is not None else (0, 0)
         self.goal: Coordinate = goal if goal is not None else (size - 1, size - 1)
         self.grid = self._generate_maze(seed) if grid is None else grid.copy()
         self.state: Coordinate = self.start
         self.step_count = 0
-        self.wall_penalty = wall_penalty  # Penalty for hitting a wall.
-        self.stay_penalty = stay_penalty  # Penalty for staying in place.
-        self.move_penalty = move_penalty  # Penalty for a normal move.
-        self.seed = seed  # Stored seed.
+        self.wall_penalty = wall_penalty  # 撞墙惩罚
+        self.stay_penalty = stay_penalty  # 新增：原地不动的惩罚
+        self.move_penalty = move_penalty  # 普通移动惩罚
+        self.seed = seed  # 保存种子
 
     @property
     def n_states(self) -> int:
@@ -57,13 +57,11 @@ class MazeEnv:
 
     def _generate_maze(self, seed: int) -> np.ndarray:
         """Creates a maze with multiple carved corridors plus a guaranteed start-goal path."""
-        # Default maze generator used only when no external grid is provided.
         rng = random.Random(seed)
         grid = np.ones((self.size, self.size), dtype=np.int8)
         safe_path: set[Coordinate] = set()
 
         def carve_path(a: Coordinate, b: Coordinate) -> None:
-            # Carve a Manhattan path between two points (horizontal then vertical).
             r, c = a
             safe_path.add((r, c))
             while c != b[1]:
@@ -73,17 +71,16 @@ class MazeEnv:
                 r += 1 if b[0] > r else -1
                 safe_path.add((r, c))
 
-        # Guarantee connections between key waypoints to avoid disconnected maps.
+        # Guarantee connections between notable waypoints.
         carve_path((0, 0), (0, self.size - 1))
         carve_path((0, self.size - 1), (self.size - 1, self.size - 1))
         carve_path(self.start, self.goal)
         carve_path((0, 0), self.start)
 
-        # Add an always-open diagonal corridor to diversify routes.
+        # Add additional diagonal corridor for variety.
         for idx in range(self.size):
             safe_path.add((idx, idx))
 
-        # Open safe_path cells, plus random openings elsewhere to create branches.
         for r in range(self.size):
             for c in range(self.size):
                 if (r, c) in safe_path or (r, c) == self.goal:
@@ -101,23 +98,24 @@ class MazeEnv:
         reward = 0.0
         hit_wall = False
         is_stay = False
+        was_at_goal = self.state == self.goal
 
-        # Try to move.
+        # 尝试移动
         dr, dc = self.ACTIONS[action]
         target_r = self.state[0] + dr
         target_c = self.state[1] + dc
 
         next_coord = self.state
-        # Check whether the action is staying in place.
+        # 检查是否是原地不动
         if dr == 0 and dc == 0:
             is_stay = True
-            # Stay in place; state does not change.
+            # 原地不动，状态不变
         else:
-            # Check for out-of-bounds moves.
+            # 检查是否超出边界
             if not (0 <= target_r < self.size and 0 <= target_c < self.size):
                 hit_wall = True
             else:
-                # Check for walls.
+                # 检查是否是墙壁
                 if self.grid[target_r, target_c] == 0:
                     next_coord = (target_r, target_c)
                     self.state = next_coord
@@ -128,7 +126,9 @@ class MazeEnv:
         reached_goal = next_coord == self.goal
         done = self.step_count >= self.horizon
 
-        if reached_goal:
+        if was_at_goal and is_stay:
+            reward = 0.0
+        elif reached_goal:
             reward = 1.0
         elif hit_wall:
             reward = self.wall_penalty
@@ -169,13 +169,11 @@ class MazeEnv:
 
 def build_corridor_maze(size: int = 15, seed: int = 7) -> np.ndarray:
     """Generates a maze with explicit walls using a DFS-backtracking algorithm."""
-    # Corridor-style maze generator used by the main experiment for consistency.
-    # Fixed seed for maze generation to keep layouts reproducible.
+    # 固定种子7用于迷宫生成，保证每次生成的迷宫相同
     rng = random.Random(seed)
     grid = np.ones((size, size), dtype=np.int8)
 
     def carve_passage(cell: Coordinate, nxt: Coordinate) -> None:
-        # Carve a passage by opening both cells and the wall between them.
         r1, c1 = cell
         r2, c2 = nxt
         grid[r1, c1] = 0
@@ -187,7 +185,6 @@ def build_corridor_maze(size: int = 15, seed: int = 7) -> np.ndarray:
     visited = {start}
 
     def cell_neighbors(coord: Coordinate) -> List[Coordinate]:
-        # Neighbor cells are 2 steps away to preserve walls between corridors.
         r, c = coord
         dirs = [(-2, 0), (0, 2), (2, 0), (0, -2)]
         result: List[Coordinate] = []
@@ -210,7 +207,7 @@ def build_corridor_maze(size: int = 15, seed: int = 7) -> np.ndarray:
         visited.add(nxt)
         stack.append(nxt)
 
-    # Ensure the goal region is open and locally connected.
+    # Ensure goal region is open and connected.
     grid[size - 1, size - 1] = 0
     grid[size - 2, size - 1] = 0
     grid[size - 1, size - 2] = 0
@@ -234,33 +231,70 @@ def build_corridor_maze(size: int = 15, seed: int = 7) -> np.ndarray:
 class TrainingStats:
     episodes: List[int]
     rewards: List[float]
-    successes: List[bool]  # Whether each episode reached the goal.
+    successes: List[bool]  # 记录每个episode是否成功
     success_rate: float
     episode_paths: List[List[Coordinate]] | None = None
+
+
+def sparse_goal_reward(next_coord: Coordinate, goal: Coordinate) -> float:
+    """Returns a pure sparse reward: 1 on goal, otherwise 0."""
+    return 1.0 if next_coord == goal else 0.0
+
+
+def select_best_path(stats: TrainingStats, goal: Coordinate) -> List[Coordinate] | None:
+    """Selects the shortest successful training path, breaking ties by reward."""
+    if not stats.episode_paths or not stats.rewards or not stats.successes:
+        return None
+
+    best_idx: int | None = None
+    best_length = float("inf")
+    best_reward = float("-inf")
+
+    for idx, (path, reward, success) in enumerate(zip(stats.episode_paths, stats.rewards, stats.successes)):
+        if not success or not path or path[-1] != goal:
+            continue
+        path_length = len(path)
+        if path_length < best_length or (path_length == best_length and reward > best_reward):
+            best_idx = idx
+            best_length = path_length
+            best_reward = reward
+
+    if best_idx is None:
+        return None
+    return stats.episode_paths[best_idx]
 
 
 def plot_reward_trace(episodes: Sequence[int], rewards: Sequence[float],
                       out_path: str = "reward_vs_step.png", window: int = 50) -> str:
     """Plots reward vs. step (episode index) and saves to disk."""
-    plt.figure(figsize=(10, 4))
+    plt.figure(figsize=(6, 6))
     plt.plot(episodes, rewards, label="Episode Reward", alpha=0.3)
     plt.xlabel("Episode", fontsize=14, fontweight="bold")
-    plt.ylabel("Reward", fontsize=14, fontweight="bold")
+    plt.ylabel("Cumulative Reward for an Episode", fontsize=14, fontweight="bold")
     ax = plt.gca()
-    ax.yaxis.set_label_coords(-0.08, 0.45)
+    ax.set_box_aspect(1)
+    ax.yaxis.set_label_coords(-0.14, 0.5)
     # No title per request.
     plt.xlim(0, 200)
+    y_tick_step = 1000
+    max_reward = max(rewards) if rewards else 0.0
+    y_upper = max(1000, int(math.ceil((max_reward + 0.5 * y_tick_step) / y_tick_step) * y_tick_step))
+    plt.ylim(-5000, y_upper)
+    ax.set_xticks(np.arange(0, 201, 20))
+    ax.set_yticks(np.arange(-5000, y_upper + y_tick_step, y_tick_step))
+    plt.setp(ax.get_xticklabels(), fontweight="bold")
+    plt.setp(ax.get_yticklabels(), fontweight="bold")
     plt.grid(True, linestyle="--", alpha=0.3)
-    plt.legend(loc="lower right", fontsize=18)
+    plt.legend(loc="lower right", fontsize=12)
     ax.set_frame_on(True)
     ax.spines["left"].set_bounds(*ax.get_ylim())
     ax.spines["bottom"].set_bounds(*ax.get_xlim())
     ax.spines["right"].set_visible(True)
     ax.spines["top"].set_visible(True)
     plt.tight_layout()
-    # Ensure the directory exists.
+    # 确保目录存在
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
-    plt.savefig(out_path, dpi=150)
+    plt.savefig(out_path, dpi=150, bbox_inches="tight", pad_inches=0)
     plt.close()
     return out_path
 
@@ -270,17 +304,27 @@ def plot_reward_comparison_three(stats_a: TrainingStats, label_a: str,
                                  stats_c: TrainingStats, label_c: str,
                                  out_path: str = "reward_vs_step_compare_three.png") -> str:
     """Plots reward vs. episode for three runs on the same figure."""
-    plt.figure(figsize=(10, 4))
+    plt.figure(figsize=(6, 6))
     plt.plot(stats_a.episodes, stats_a.rewards, color="red", alpha=0.6, label=label_a)
     plt.plot(stats_b.episodes, stats_b.rewards, color="black", alpha=0.6, label=label_b)
     plt.plot(stats_c.episodes, stats_c.rewards, color="blue", alpha=0.6, label=label_c)
     plt.xlabel("Episode", fontsize=14, fontweight="bold")
-    plt.ylabel("Reward", fontsize=14, fontweight="bold")
+    plt.ylabel("Cumulative Reward for an Episode", fontsize=14, fontweight="bold")
     ax = plt.gca()
-    ax.yaxis.set_label_coords(-0.08, 0.45)
+    ax.set_box_aspect(1)
+    ax.yaxis.set_label_coords(-0.14, 0.5)
     plt.grid(True, linestyle="--", alpha=0.3)
     plt.xlim(0, 200)
-    plt.legend(loc="lower right", fontsize=18)
+    y_tick_step = 1000
+    all_rewards = list(stats_a.rewards) + list(stats_b.rewards) + list(stats_c.rewards)
+    max_reward = max(all_rewards) if all_rewards else 0.0
+    y_upper = max(1000, int(math.ceil((max_reward + 0.5 * y_tick_step) / y_tick_step) * y_tick_step))
+    plt.ylim(-5000, y_upper)
+    ax.set_xticks(np.arange(0, 201, 20))
+    ax.set_yticks(np.arange(-5000, y_upper + y_tick_step, y_tick_step))
+    plt.setp(ax.get_xticklabels(), fontweight="bold")
+    plt.setp(ax.get_yticklabels(), fontweight="bold")
+    plt.legend(loc="lower right", fontsize=12)
     ax.set_frame_on(True)
     ax.spines["left"].set_bounds(*ax.get_ylim())
     ax.spines["bottom"].set_bounds(*ax.get_xlim())
@@ -288,17 +332,17 @@ def plot_reward_comparison_three(stats_a: TrainingStats, label_a: str,
     ax.spines["top"].set_visible(True)
     plt.tight_layout()
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
-    plt.savefig(out_path, dpi=150)
+    plt.savefig(out_path, dpi=150, bbox_inches="tight", pad_inches=0)
     plt.close()
     return out_path
 
 
 def save_maze_visualization(grid: np.ndarray, start: Coordinate, goal: Coordinate,
                             path: Sequence[Coordinate] | None = None,
-                            out_path: str = "maze_layout.png",
+                            out_path: str = "maze_layout.pdf",
                             marker_style: str = "line") -> str:
     """Saves a color visualization of the maze with optional path overlay."""
-    # Ensure the directory exists.
+    # 确保目录存在
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
 
     fig, ax = plt.subplots(figsize=(6, 6))
@@ -322,9 +366,9 @@ def save_maze_visualization(grid: np.ndarray, start: Coordinate, goal: Coordinat
     ax.set_xticks([])
     ax.set_yticks([])
     # No title per request.
-    ax.legend(loc="upper right")
+    ax.legend(loc="lower left")
     plt.tight_layout()
-    plt.savefig(out_path, dpi=200)
+    plt.savefig(out_path, dpi=200, bbox_inches="tight", pad_inches=0)
     plt.close(fig)
     return out_path
 
@@ -333,7 +377,7 @@ def save_maze_visualization_compare_three(grid: np.ndarray, start: Coordinate, g
                                           path_a: Sequence[Coordinate], label_a: str,
                                           path_b: Sequence[Coordinate], label_b: str,
                                           path_c: Sequence[Coordinate], label_c: str,
-                                          out_path: str = "maze_path_compare_three.png") -> str:
+                                          out_path: str = "maze_path_compare_three.pdf") -> str:
     """Saves a comparison visualization for three paths."""
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
 
@@ -364,9 +408,9 @@ def save_maze_visualization_compare_three(grid: np.ndarray, start: Coordinate, g
 
     ax.set_xticks([])
     ax.set_yticks([])
-    ax.legend(loc="upper right")
+    ax.legend(loc="lower left")
     plt.tight_layout()
-    plt.savefig(out_path, dpi=200)
+    plt.savefig(out_path, dpi=200, bbox_inches="tight", pad_inches=0)
     plt.close(fig)
     return out_path
 
@@ -377,7 +421,7 @@ def save_episode_animation(grid: np.ndarray, start: Coordinate, goal: Coordinate
                            out_path: str = "episode_paths.gif",
                            interval_ms: int = 120) -> str:
     """Saves an animation that shows each episode's path in sequence."""
-    # Ensure the directory exists.
+    # 确保目录存在
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
 
     fig, ax = plt.subplots(figsize=(6, 6))
@@ -389,7 +433,7 @@ def save_episode_animation(grid: np.ndarray, start: Coordinate, goal: Coordinate
     ax.set_xticks([])
     ax.set_yticks([])
     ax.set_title("Episode Paths")
-    ax.legend(loc="upper right")
+    ax.legend(loc="lower left")
 
     def init() -> tuple:
         path_line.set_data([], [])
@@ -421,14 +465,14 @@ def save_episode_animation(grid: np.ndarray, start: Coordinate, goal: Coordinate
 
 
 class RandomNumberPool:
-    """Large random number pool, pre-generated and consumed sequentially."""
+    """巨大的随机数池，预先生成并顺序抽取"""
 
     def __init__(self, pool_size: int = 1000000, seed: int = 42):
-        """Initialize the random pool.
+        """初始化随机数池
 
         Args:
-            pool_size: Size of the random pool.
-            seed: Seed for the random generator.
+            pool_size: 随机数池的大小
+            seed: 随机数生成器的种子
         """
         self.pool_size = pool_size
         self.pool = None
@@ -437,15 +481,15 @@ class RandomNumberPool:
         self._generate_pool()
 
     def _generate_pool(self):
-        """Generate the random pool."""
+        """生成随机数池"""
         np.random.seed(self.seed)
-        # Draw uniform random numbers in [0, 1).
+        # 生成均匀分布的随机数 [0, 1)
         self.pool = np.random.random(self.pool_size)
 
     def get_random(self) -> float:
-        """Get one random value from the pool."""
+        """从池中获取一个随机数"""
         if self.index >= self.pool_size:
-            # Refill when the pool is exhausted.
+            # 如果池用完了，重新生成
             self._refill_pool()
 
         value = self.pool[self.index]
@@ -453,53 +497,53 @@ class RandomNumberPool:
         return value
 
     def get_random_int(self, low: int, high: int) -> int:
-        """Get a random integer in [low, high).
+        """获取一个区间内的随机整数
 
         Args:
-            low: Inclusive lower bound.
-            high: Exclusive upper bound.
+            low: 最小值（包含）
+            high: 最大值（不包含）
         """
         rand_float = self.get_random()
         return int(low + rand_float * (high - low))
 
     def get_random_choice(self, array):
-        """Randomly choose one element from an array."""
+        """从数组中随机选择一个元素"""
         if len(array) == 0:
             return None
         idx = self.get_random_int(0, len(array))
         return array[idx]
 
     def _refill_pool(self):
-        """Refill the random pool."""
-        # Use the current index as a new seed to vary refills.
+        """重新填充随机数池"""
+        # 使用当前索引作为新的种子，确保每次重新填充都不同
         new_seed = int(self.seed + self.index)
         np.random.seed(new_seed)
         self.pool = np.random.random(self.pool_size)
         self.index = 0
 
     def reset(self):
-        """Reset the index back to the start."""
+        """重置索引到开始位置"""
         self.index = 0
 
 
 class EpisodeRandomPool:
-    """Random pools dedicated to each episode."""
+    """每个episode专用的随机数池"""
 
     def __init__(self, base_seed: int, pool_size: int = 10000):
-        """Initialize the per-episode random pools.
+        """初始化episode随机数池
 
         Args:
-            base_seed: Base seed.
-            pool_size: Pool size per episode.
+            base_seed: 基础种子
+            pool_size: 每个episode的随机数池大小
         """
         self.base_seed = base_seed
         self.pool_size = pool_size
         self.episode_pools = {}
 
     def get_episode_pool(self, episode_idx: int) -> RandomNumberPool:
-        """Get or create the random pool for a specific episode."""
+        """获取或创建指定episode的随机数池"""
         if episode_idx not in self.episode_pools:
-            # Use episode index to create a unique seed.
+            # 使用episode索引创建独特的种子
             episode_seed = self.base_seed + episode_idx * 1000
             self.episode_pools[episode_idx] = RandomNumberPool(
                 pool_size=self.pool_size,
@@ -508,13 +552,13 @@ class EpisodeRandomPool:
         return self.episode_pools[episode_idx]
 
     def get_step_pool(self, episode_idx: int, step_idx: int) -> RandomNumberPool:
-        """Get or create the random pool for a specific episode and step."""
+        """获取或创建指定episode和step的随机数池"""
         pool_key = (episode_idx, step_idx)
         if pool_key not in self.episode_pools:
-            # Use episode and step indices to create a unique seed.
+            # 使用episode和step索引创建独特的种子
             step_seed = self.base_seed + episode_idx * 10000 + step_idx * 100
             self.episode_pools[pool_key] = RandomNumberPool(
-                pool_size=1000,  # Step pool can be smaller.
+                pool_size=1000,  # step pool可以小一些
                 seed=step_seed
             )
         return self.episode_pools[pool_key]
@@ -525,7 +569,8 @@ class QLearningUCBHoeffdingSparse:
 
     def __init__(self, env: MazeEnv, horizon: int, episodes: int,
                  failure_prob: float = 0.1, bonus_constant: float = 1.0,
-                 sparse_fraction: float = 0.1, seed: Optional[int] = None) -> None:
+                 sparse_fraction: float = 0.1, seed: Optional[int] = None,
+                 use_sparse_reward_only: bool = False) -> None:
         self.env = env
         self.H = horizon
         self.K = episodes
@@ -534,12 +579,13 @@ class QLearningUCBHoeffdingSparse:
         self.sparse_fraction = sparse_fraction
         self.sparse_steps = self.sparse_fraction * self.H  # s in sparse reward description.
         self.failure_prob = failure_prob
-        # Set the base random seed.
+        self.use_sparse_reward_only = use_sparse_reward_only
+        # 设置基础随机种子
         if seed is None:
             seed = random.randint(0, 1000000)
         self.base_seed = seed
 
-        # Initialize the random pool system.
+        # 初始化随机数池系统
         self.episode_random_pool = EpisodeRandomPool(base_seed=seed, pool_size=10000)
         self.eval_random_pool = RandomNumberPool(pool_size=50000, seed=seed + 1000000)
         self.global_random_pool = RandomNumberPool(pool_size=100000, seed=seed + 2000000)
@@ -549,24 +595,24 @@ class QLearningUCBHoeffdingSparse:
         # Scale c so that b_t = c * s * sqrt(H iota / t) stays well below 1.
         self.c = bonus_constant / (self.sparse_steps * math.sqrt(self.H * self.iota))
 
-        # Initialize all Q-values to the sparse-step scale s.
+        # 按算法：所有Q值初始化为稀疏步数 s
         self.q_init_value = self.sparse_steps
 
-        # Q values initialized to s.
+        # Q值初始化为 s
         self.Q = np.full((self.S, self.A), self.q_init_value, dtype=float)
 
-        # V values initialized to 0.
+        # V值初始化为 0
         self.V = np.zeros(self.S, dtype=float)
 
         self.N = np.zeros((self.S, self.A), dtype=int)
 
-        # Record initial Q statistics.
+        # 记录初始Q值统计
         self.initial_q_min = np.min(self.Q)
         self.initial_q_max = np.max(self.Q)
         self.initial_q_mean = np.mean(self.Q)
         self.initial_q_std = np.std(self.Q)
 
-        # Record initial V statistics.
+        # 记录初始V值统计
         self.initial_v_min = np.min(self.V)
         self.initial_v_max = np.max(self.V)
         self.initial_v_mean = np.mean(self.V)
@@ -574,31 +620,31 @@ class QLearningUCBHoeffdingSparse:
 
     def train(self, log_interval: int = 50, record_paths: bool = False) -> TrainingStats:
         rewards: List[float] = []
-        successes: List[bool] = []  # Whether each episode reached the goal.
+        successes: List[bool] = []  # 记录每个episode是否成功
         episodes_axis: List[int] = []
         episode_paths: List[List[Coordinate]] | None = [] if record_paths else None
 
-        # Track exploration statistics.
+        # 记录探索统计
         exploration_stats = {
-            'unique_state_actions': []  # Unique state-action pairs per episode.
+            'unique_state_actions': []  # 记录每个episode探索的唯一状态-动作对数量
         }
 
         for episode in range(1, self.K + 1):
-            # Get the random pool for this episode.
-            episode_pool = self.episode_random_pool.get_episode_pool(episode - 1)  # Zero-based index.
+            # 获取当前episode的随机数池
+            episode_pool = self.episode_random_pool.get_episode_pool(episode - 1)  # 从0开始索引
 
             state_coord = self.env.reset()
             if episode_paths is not None:
                 episode_coords: List[Coordinate] = [state_coord]
             state = self.env.coord_to_state(state_coord)
             episode_total_reward = 0.0
-            episode_success = False  # Track whether this episode reached the goal.
+            episode_success = False  # 记录这个episode是否成功
 
-            # Track exploration stats for this episode.
+            # 记录本episode的探索统计
             episode_unique_sa = set()
 
             for h in range(self.H):
-                # Get the random pool for this step.
+                # 获取当前step的随机数池
                 step_pool = self.episode_random_pool.get_step_pool(episode - 1, h)
 
                 action = self._greedy_action_with_pool(state, step_pool)
@@ -606,6 +652,8 @@ class QLearningUCBHoeffdingSparse:
                 episode_unique_sa.add((state, action))
 
                 next_coord, reward, done, info = self.env.step(action)
+                if self.use_sparse_reward_only:
+                    reward = sparse_goal_reward(next_coord, self.env.goal)
 
                 if episode_paths is not None:
                     episode_coords.append(next_coord)
@@ -613,10 +661,10 @@ class QLearningUCBHoeffdingSparse:
                 t = self.N[state, action] + 1
                 self.N[state, action] = t
 
-                # Accumulate episode reward.
+                # 记录回合总奖励
                 episode_total_reward += reward
 
-                # Check whether the goal is reached.
+                # 检查是否到达目标
                 if next_coord == self.env.goal:
                     episode_success = True
 
@@ -631,12 +679,12 @@ class QLearningUCBHoeffdingSparse:
                     break
 
             rewards.append(episode_total_reward)
-            successes.append(episode_success)  # Record success.
+            successes.append(episode_success)  # 记录是否成功
             episodes_axis.append(episode)
             if episode_paths is not None:
                 episode_paths.append(episode_coords)
 
-            # Record exploration statistics.
+            # 记录探索统计
             exploration_stats['unique_state_actions'].append(len(episode_unique_sa))
 
             if episode % log_interval == 0:
@@ -654,15 +702,15 @@ class QLearningUCBHoeffdingSparse:
                       f"success rate={success_rate:.2f}, "
                       f"unique SA={avg_unique:.1f}")
 
-                # Print Q-value statistics.
+                # 打印Q值统计
                 if episode % (log_interval * 5) == 0:
                     self._print_value_statistics(episode)
 
-        # Compute the final success rate.
+        # 计算最终的成功率
         final_successes = successes[-min(100, len(successes)):]
         success_rate = sum(final_successes) / max(1, len(final_successes))
 
-        # Print final exploration statistics.
+        # 打印最终探索统计
         self._print_exploration_summary(exploration_stats)
 
         return TrainingStats(
@@ -674,7 +722,7 @@ class QLearningUCBHoeffdingSparse:
         )
 
     def _print_value_statistics(self, episode: int):
-        """Print Q and V statistics."""
+        """打印Q值和V值统计信息"""
         negative_q_count = np.sum(self.Q < 0)
         positive_q_count = np.sum(self.Q > 0)
 
@@ -687,7 +735,7 @@ class QLearningUCBHoeffdingSparse:
         print(f"    V mean/std: {np.mean(self.V):.2f}/{np.std(self.V):.2f}")
 
     def _print_exploration_summary(self, exploration_stats: dict):
-        """Print exploration summary."""
+        """打印探索统计摘要"""
         print("\n" + "=" * 60)
         print("探索统计摘要:")
         print("=" * 60)
@@ -702,24 +750,24 @@ class QLearningUCBHoeffdingSparse:
         print(f"探索覆盖率: {total_unique / (self.S * self.A) * 100:.1f}%")
 
     def _greedy_action_with_pool(self, state: int, random_pool: RandomNumberPool) -> int:
-        """Select a greedy action using a random pool to break ties."""
+        """使用随机数池选择贪婪动作（平局时随机打破）"""
         q_values = self.Q[state]
         max_value = np.max(q_values)
         max_actions = np.flatnonzero(np.isclose(q_values, max_value))
 
-        # Use the random pool to choose among ties.
+        # 使用随机数池选择动作
         if len(max_actions) == 1:
             return int(max_actions[0])
         else:
-            # Random tie-breaking.
+            # 平局时随机选择一个
             return int(max_actions[random_pool.get_random_int(0, len(max_actions))])
 
     def greedy_path_from_q(self, env: MazeEnv, deterministic: bool = True,
                            episode_seed: Optional[int] = None) -> List[Coordinate]:
         """Follows the greedy policy derived from the Q-table to get a path."""
-        # Create a random pool for evaluation.
+        # 创建评估用的随机数池
         if episode_seed is None:
-            # Draw a seed from the global pool.
+            # 从全局随机数池获取一个种子
             episode_seed = int(self.global_random_pool.get_random() * 1000000)
         eval_pool = RandomNumberPool(pool_size=1000, seed=episode_seed)
 
@@ -728,7 +776,7 @@ class QLearningUCBHoeffdingSparse:
         state = env.coord_to_state(coord)
 
         for h in range(self.H):
-            # Create an independent random pool for each step.
+            # 为每个step创建独立的随机数池
             step_pool = RandomNumberPool(pool_size=100, seed=episode_seed + h * 100)
 
             q_values = self.Q[state]
@@ -738,7 +786,7 @@ class QLearningUCBHoeffdingSparse:
             if deterministic:
                 action = int(max_actions[0])
             else:
-                # Use the step pool for random tie-breaking.
+                # 使用step的随机数池随机选择
                 action = int(max_actions[step_pool.get_random_int(0, len(max_actions))])
 
             coord, _, done, _ = env.step(action)
@@ -750,7 +798,7 @@ class QLearningUCBHoeffdingSparse:
 
     def rollout(self, env: MazeEnv, episode_seed: Optional[int] = None) -> Tuple[List[Coordinate], float, bool]:
         """Follows the greedy policy for a single episode and returns the positions, total reward, and success status."""
-        # Create a random pool for evaluation.
+        # 创建评估用的随机数池
         if episode_seed is None:
             episode_seed = int(self.eval_random_pool.get_random() * 1000000)
         eval_pool = RandomNumberPool(pool_size=1000, seed=episode_seed)
@@ -759,27 +807,29 @@ class QLearningUCBHoeffdingSparse:
         coords = [coord]
         state = env.coord_to_state(coord)
         total_reward = 0.0
-        success = False  # Track whether the goal is reached.
+        success = False  # 记录是否成功到达目标
 
         for h in range(self.H):
-            # Create an independent random pool for each step.
+            # 为每个step创建独立的随机数池
             step_pool = RandomNumberPool(pool_size=100, seed=episode_seed + h * 100)
 
             q_values = self.Q[state]
             max_value = np.max(q_values)
             max_actions = np.flatnonzero(np.isclose(q_values, max_value))
 
-            # Use the step pool to select an action.
+            # 使用step的随机数池选择动作
             if len(max_actions) == 1:
                 action = int(max_actions[0])
             else:
                 action = int(max_actions[step_pool.get_random_int(0, len(max_actions))])
 
             coord, reward, done, _ = env.step(action)
+            if self.use_sparse_reward_only:
+                reward = sparse_goal_reward(coord, env.goal)
             coords.append(coord)
             total_reward += reward
 
-            # Check whether the goal is reached.
+            # 检查是否到达目标
             if coord == env.goal:
                 success = True
 
@@ -794,7 +844,7 @@ class QLearningUCBHoeffdingSparse:
         total_rewards = 0.0
 
         for eval_episode in range(episodes):
-            # Use the evaluation random pool.
+            # 使用评估随机数池
             eval_pool = self.eval_random_pool
 
             coord = env.reset()
@@ -803,7 +853,7 @@ class QLearningUCBHoeffdingSparse:
             episode_success = False
 
             for h in range(self.H):
-                # Use the global pool to seed a step pool.
+                # 使用全局随机数池创建step池
                 step_pool = RandomNumberPool(
                     pool_size=100,
                     seed=int(self.global_random_pool.get_random() * 1000000 + h * 100)
@@ -813,16 +863,18 @@ class QLearningUCBHoeffdingSparse:
                 max_value = np.max(q_values)
                 max_actions = np.flatnonzero(np.isclose(q_values, max_value))
 
-                # Use the step pool to select an action.
+                # 使用step池选择动作
                 if len(max_actions) == 1:
                     action = int(max_actions[0])
                 else:
                     action = int(max_actions[step_pool.get_random_int(0, len(max_actions))])
 
                 coord, reward, done, _ = env.step(action)
+                if self.use_sparse_reward_only:
+                    reward = sparse_goal_reward(coord, env.goal)
                 episode_reward += reward
 
-                # Check whether the goal is reached.
+                # 检查是否到达目标
                 if coord == env.goal:
                     episode_success = True
 
@@ -839,12 +891,12 @@ class QLearningUCBHoeffdingSparse:
         return success_rate, avg_reward
 
     def save_q_table_with_coordinates(self, filepath: str, env: MazeEnv) -> None:
-        """Save the Q-table with coordinates and action descriptions."""
-        # Ensure the directory exists.
+        """保存Q表，包含坐标和动作说明"""
+        # 确保目录存在
         os.makedirs(os.path.dirname(filepath), exist_ok=True)
 
         with open(filepath, 'w') as f:
-            # Write header information.
+            # 写入文件头部信息
             f.write("# Q-Table with State Coordinates and Action Descriptions\n")
             f.write("# ======================================================\n")
             f.write(f"# Maze Size: {env.size}x{env.size}\n")
@@ -857,14 +909,14 @@ class QLearningUCBHoeffdingSparse:
             f.write(f"# Initial Q Value: {self.q_init_value}\n")
             f.write("# ======================================================\n\n")
 
-            # Write action mapping.
+            # 写入动作说明
             f.write("# Action Mapping:\n")
             for i, (dr, dc) in enumerate(env.ACTIONS):
                 action_name = env.ACTION_NAMES[i] if i < len(env.ACTION_NAMES) else f"ACTION_{i}"
                 f.write(f"#   Action {i}: {action_name} (move: {dr}, {dc})\n")
             f.write("\n")
 
-            # Write Q-values for each state.
+            # 写入每个状态的Q值
             f.write("# State Information and Q-Values:\n")
             f.write(
                 "# Format: StateID (row, col) | IsStart | IsGoal | IsWall | UP | RIGHT | DOWN | LEFT | STAY | BestAction\n")
@@ -875,33 +927,33 @@ class QLearningUCBHoeffdingSparse:
                 coord = env.state_to_coord(state)
                 row, col = coord
 
-                # Determine state type.
+                # 确定状态类型
                 is_start = coord == env.start
                 is_goal = coord == env.goal
                 is_wall = env.grid[row, col] == 1 if 0 <= row < env.size and 0 <= col < env.size else True
 
-                # Get the best action.
+                # 获取最佳动作
                 q_values = self.Q[state]
                 best_action_idx = int(np.argmax(q_values))
                 best_action_name = env.ACTION_NAMES[best_action_idx] if best_action_idx < len(
                     env.ACTION_NAMES) else f"ACTION_{best_action_idx}"
 
-                # Write state info.
+                # 写入状态信息
                 f.write(f"State {state:3d} ({row:2d}, {col:2d}): ")
                 f.write(f"Start={1 if is_start else 0}, ")
                 f.write(f"Goal={1 if is_goal else 0}, ")
                 f.write(f"Wall={1 if is_wall else 0}")
                 f.write(" | ")
 
-                # Write Q-values.
+                # 写入Q值
                 for action in range(self.A):
                     q_value = self.Q[state, action]
                     f.write(f"{q_value:8.4f} ")
 
-                # Write best action.
+                # 写入最佳动作
                 f.write(f"| Best: {best_action_name} (Action {best_action_idx})\n")
 
-            # Write best policy summary.
+            # 写入最佳策略总结
             f.write("\n# Best Policy Summary:\n")
             f.write("# --------------------\n")
 
@@ -911,7 +963,7 @@ class QLearningUCBHoeffdingSparse:
                 is_wall = env.grid[row, col] == 1 if 0 <= row < env.size and 0 <= col < env.size else True
 
                 if is_wall:
-                    continue  # Skip wall states.
+                    continue  # 跳过墙壁状态
 
                 q_values = self.Q[state]
                 best_action_idx = int(np.argmax(q_values))
@@ -920,12 +972,12 @@ class QLearningUCBHoeffdingSparse:
                 f.write(f"  ({row:2d}, {col:2d}) -> {best_action_name}\n")
 
     def save_visit_counts_with_coordinates(self, filepath: str, env: MazeEnv) -> None:
-        """Save visit counts with coordinates and action descriptions."""
-        # Ensure the directory exists.
+        """保存访问次数，包含坐标和动作说明"""
+        # 确保目录存在
         os.makedirs(os.path.dirname(filepath), exist_ok=True)
 
         with open(filepath, 'w') as f:
-            # Write header information.
+            # 写入文件头部信息
             f.write("# Visit Counts with State Coordinates and Action Descriptions\n")
             f.write("# ===========================================================\n")
             f.write(f"# Maze Size: {env.size}x{env.size}\n")
@@ -933,14 +985,14 @@ class QLearningUCBHoeffdingSparse:
             f.write(f"# Number of Actions: {self.A}\n")
             f.write("# ===========================================================\n\n")
 
-            # Write action mapping.
+            # 写入动作说明
             f.write("# Action Mapping:\n")
             for i, (dr, dc) in enumerate(env.ACTIONS):
                 action_name = env.ACTION_NAMES[i] if i < len(env.ACTION_NAMES) else f"ACTION_{i}"
                 f.write(f"#   Action {i}: {action_name} (move: {dr}, {dc})\n")
             f.write("\n")
 
-            # Write visit counts for each state.
+            # 写入每个状态的访问次数
             f.write("# State Information and Visit Counts:\n")
             f.write("# Format: StateID (row, col) | TotalVisits | UP | RIGHT | DOWN | LEFT | STAY\n")
             f.write("# -------------------------------------------------------------------------\n")
@@ -949,26 +1001,26 @@ class QLearningUCBHoeffdingSparse:
                 coord = env.state_to_coord(state)
                 row, col = coord
 
-                # Compute total visits.
+                # 计算总访问次数
                 total_visits = np.sum(self.N[state, :])
 
-                # Write state info.
+                # 写入状态信息
                 f.write(f"State {state:3d} ({row:2d}, {col:2d}): ")
                 f.write(f"Total={total_visits:6d} | ")
 
-                # Write per-action visit counts.
+                # 写入各动作的访问次数
                 for action in range(self.A):
                     visit_count = self.N[state, action]
                     f.write(f"{visit_count:6d} ")
                 f.write("\n")
 
-            # Write visit count statistics.
+            # 写入访问次数统计
             f.write("\n# Visit Counts Statistics:\n")
             f.write("# -----------------------\n")
             total_all_visits = np.sum(self.N)
             f.write(f"Total visits across all states and actions: {total_all_visits}\n")
 
-            # Find the most visited state-action pair.
+            # 找出访问最多的状态和动作
             if total_all_visits > 0:
                 max_visit_state = np.unravel_index(np.argmax(self.N), self.N.shape)[0]
                 max_visit_action = np.unravel_index(np.argmax(self.N), self.N.shape)[1]
@@ -984,8 +1036,8 @@ class QLearningUCBHoeffdingSparse:
                 f.write("No visits recorded yet.\n")
 
     def save_q_table_summary(self, filepath: str, env: MazeEnv) -> None:
-        """Save summary statistics for the Q-table."""
-        # Ensure the directory exists.
+        """保存Q表的统计摘要"""
+        # 确保目录存在
         os.makedirs(os.path.dirname(filepath), exist_ok=True)
 
         with open(filepath, 'w') as f:
@@ -997,35 +1049,35 @@ class QLearningUCBHoeffdingSparse:
             f.write(f"# Initial Q Value: {self.q_init_value}\n")
             f.write("# ======================================\n\n")
 
-            # Initial Q-value statistics.
+            # 初始Q值统计
             f.write("## Initial Q-values Statistics:\n")
             f.write(f"  Initial Min: {self.initial_q_min}\n")
             f.write(f"  Initial Max: {self.initial_q_max}\n")
             f.write(f"  Initial Mean: {self.initial_q_mean}\n")
             f.write(f"  Initial Std: {self.initial_q_std}\n\n")
 
-            # Initial V-value statistics.
+            # 初始V值统计
             f.write("## Initial V-values Statistics:\n")
             f.write(f"  Initial Min: {self.initial_v_min}\n")
             f.write(f"  Initial Max: {self.initial_v_max}\n")
             f.write(f"  Initial Mean: {self.initial_v_mean}\n")
             f.write(f"  Initial Std: {self.initial_v_std}\n\n")
 
-            # Final Q-value statistics.
+            # 最终Q值统计
             f.write("## Final Q-values Statistics:\n")
             f.write(f"  Min Q-value: {np.min(self.Q):.6f}\n")
             f.write(f"  Max Q-value: {np.max(self.Q):.6f}\n")
             f.write(f"  Mean Q-value: {np.mean(self.Q):.6f}\n")
             f.write(f"  Std Q-value: {np.std(self.Q):.6f}\n")
 
-            # Final V-value statistics.
+            # 最终V值统计
             f.write("\n## Final V-values Statistics:\n")
             f.write(f"  Min V-value: {np.min(self.V):.6f}\n")
             f.write(f"  Max V-value: {np.max(self.V):.6f}\n")
             f.write(f"  Mean V-value: {np.mean(self.V):.6f}\n")
             f.write(f"  Std V-value: {np.std(self.V):.6f}\n")
 
-            # Summarize Q-value sign distribution.
+            # 统计Q值正负比例
             positive_q = np.sum(self.Q > 0)
             negative_q = np.sum(self.Q < 0)
             zero_q = np.sum(self.Q == 0)
@@ -1036,7 +1088,7 @@ class QLearningUCBHoeffdingSparse:
             f.write(f"  Negative Q-values: {negative_q} ({negative_q / total_q * 100:.2f}%)\n")
             f.write(f"  Zero Q-values: {zero_q} ({zero_q / total_q * 100:.2f}%)\n")
 
-            # Best policy analysis.
+            # 最佳策略分析
             f.write(f"\n## Best Policy Analysis:\n")
             best_actions = np.argmax(self.Q, axis=1)
             action_counts = {i: np.sum(best_actions == i) for i in range(self.A)}
@@ -1054,7 +1106,9 @@ class QLearningEpsilonGreedy:
 
     def __init__(self, env: MazeEnv, horizon: int, episodes: int,
                  alpha: float = 0.2, gamma: float = 0.99,
-                 epsilon: float = 0.1, seed: Optional[int] = None) -> None:
+                 epsilon: float = 0.2, epsilon_min: float = 0.2,
+                 epsilon_decay: float = 1.0, seed: Optional[int] = None,
+                 use_sparse_reward_only: bool = False) -> None:
         self.env = env
         self.H = horizon
         self.K = episodes
@@ -1063,6 +1117,9 @@ class QLearningEpsilonGreedy:
         self.alpha = alpha
         self.gamma = gamma
         self.epsilon = epsilon
+        self.epsilon_min = epsilon_min
+        self.epsilon_decay = epsilon_decay
+        self.use_sparse_reward_only = use_sparse_reward_only
         self.rng = random.Random(seed)
 
         self.Q = np.zeros((self.S, self.A), dtype=float)
@@ -1095,6 +1152,8 @@ class QLearningEpsilonGreedy:
             for _ in range(self.H):
                 action = self._select_action(state, eps)
                 next_coord, reward, done, info = self.env.step(action)
+                if self.use_sparse_reward_only:
+                    reward = sparse_goal_reward(next_coord, self.env.goal)
                 next_state = self.env.coord_to_state(next_coord)
 
                 td_target = reward + self.gamma * np.max(self.Q[next_state])
@@ -1146,6 +1205,8 @@ class QLearningEpsilonGreedy:
             for _ in range(self.H):
                 action = int(np.argmax(self.Q[state]))
                 next_coord, reward, done, info = env.step(action)
+                if self.use_sparse_reward_only:
+                    reward = sparse_goal_reward(next_coord, env.goal)
                 next_state = env.coord_to_state(next_coord)
                 episode_reward += reward
                 if next_coord == env.goal:
@@ -1172,6 +1233,8 @@ class QLearningEpsilonGreedy:
         for _ in range(self.H):
             action = int(np.argmax(self.Q[state]))
             next_coord, reward, done, info = env.step(action)
+            if self.use_sparse_reward_only:
+                reward = sparse_goal_reward(next_coord, env.goal)
             next_state = env.coord_to_state(next_coord)
             total_reward += reward
             path.append(next_coord)
@@ -1208,14 +1271,14 @@ class QLearningEpsilonGreedy:
 
 
 def ensure_output_dir() -> str:
-    """Ensure the output directory exists and return its path."""
+    """确保输出目录存在，返回目录路径"""
     timestamp = time.strftime("%Y%m%d_%H%M%S")
     output_dir = timestamp
 
-    # Create output directory.
+    # 创建输出目录
     os.makedirs(output_dir, exist_ok=True)
 
-    # Create subdirectories.
+    # 创建子目录
     subdirs = ["plots", "visualizations", "animations", "data", "tables"]
     for subdir in subdirs:
         os.makedirs(os.path.join(output_dir, subdir), exist_ok=True)
@@ -1224,9 +1287,9 @@ def ensure_output_dir() -> str:
 
 
 def main(**kwargs) -> None:
-    """Main entry that manages experiment configuration."""
+    """主函数，集中管理实验配置参数"""
 
-    # Default configuration.
+    # 默认配置集中在此处
     config = {
         "experiment_name": "maze_experiment",
         "base_seed": None,
@@ -1247,7 +1310,7 @@ def main(**kwargs) -> None:
         "record_paths": True,
     }
 
-    # Use config values, allow overrides via CLI.
+    # 使用配置中的参数，但允许通过命令行参数覆盖
     seed = kwargs.get('seed', config.get('base_seed'))
     output_dir = kwargs.get('output_dir', config.get('output_dir'))
     wall_penalty = kwargs.get('wall_penalty', config.get('wall_penalty'))
@@ -1256,7 +1319,7 @@ def main(**kwargs) -> None:
     episodes = kwargs.get('episodes', config.get('episodes'))
     horizon = kwargs.get('horizon', config.get('horizon'))
 
-    # Read remaining parameters from config.
+    # 从配置中获取其他参数
     failure_prob = config.get('failure_prob', 0.1)
     bonus_constant = config.get('bonus_constant', 0.1)
     sparse_fraction = config.get('sparse_fraction', 0.01)
@@ -1267,14 +1330,13 @@ def main(**kwargs) -> None:
     if seed is None:
         seed = random.randint(0, 1000000)
 
-    # Run four experiments with fixed maze seeds and algorithms, then exit.
+    # Run experiment batch and exit.
     if output_dir is None:
         output_dir = ensure_output_dir()
     else:
         os.makedirs(output_dir, exist_ok=True)
 
     base_sparse_fraction = sparse_fraction
-    # Setting sparse_fraciton = 1 (UCB-H)
     sparse_one = 1.0
     experiments = [
         {"maze_seed": 1, "algo": "ucb", "variant": "base", "output_name": "ucb",
@@ -1290,14 +1352,143 @@ def main(**kwargs) -> None:
         {"maze_seed": 12, "algo": "eps", "variant": "eps", "output_name": "eps",
          "label": "ε-greedy", "sparse_fraction": base_sparse_fraction},
     ]
+    experiments.extend([
+        {"scenario_key": "maze_seed_1_size_20", "scenario_label": "maze1_20x20", "maze_size": 20,
+         "compare_plot_filename": "reward_vs_step_compare_three_maze1_20x20.pdf",
+         "compare_path_filename": "q_greedy_path_compare_three_maze1_20x20.pdf",
+         "maze_seed": 1, "algo": "ucb", "variant": "base", "output_name": "ucb",
+         "label": "UCB", "sparse_fraction": base_sparse_fraction},
+        {"scenario_key": "maze_seed_1_size_20", "scenario_label": "maze1_20x20", "maze_size": 20,
+         "compare_plot_filename": "reward_vs_step_compare_three_maze1_20x20.pdf",
+         "compare_path_filename": "q_greedy_path_compare_three_maze1_20x20.pdf",
+         "maze_seed": 1, "algo": "ucb", "variant": "sparse1", "output_name": "ucb_h",
+         "label": "UCB-H", "sparse_fraction": sparse_one},
+        {"scenario_key": "maze_seed_1_size_20", "scenario_label": "maze1_20x20", "maze_size": 20,
+         "compare_plot_filename": "reward_vs_step_compare_three_maze1_20x20.pdf",
+         "compare_path_filename": "q_greedy_path_compare_three_maze1_20x20.pdf",
+         "maze_seed": 1, "algo": "eps", "variant": "eps", "output_name": "eps",
+         "label": "Epsilon-greedy", "sparse_fraction": base_sparse_fraction},
+        {"scenario_key": "maze_seed_12_size_30", "scenario_label": "maze12_30x30", "maze_size": 30,
+         "compare_plot_filename": "reward_vs_step_compare_three_maze12_30x30.pdf",
+         "compare_path_filename": "q_greedy_path_compare_three_maze12_30x30.pdf",
+         "maze_seed": 12, "algo": "ucb", "variant": "base", "output_name": "ucb",
+         "label": "UCB", "sparse_fraction": base_sparse_fraction},
+        {"scenario_key": "maze_seed_12_size_30", "scenario_label": "maze12_30x30", "maze_size": 30,
+         "compare_plot_filename": "reward_vs_step_compare_three_maze12_30x30.pdf",
+         "compare_path_filename": "q_greedy_path_compare_three_maze12_30x30.pdf",
+         "maze_seed": 12, "algo": "ucb", "variant": "sparse1", "output_name": "ucb_h",
+         "label": "UCB-H", "sparse_fraction": sparse_one},
+        {"scenario_key": "maze_seed_12_size_30", "scenario_label": "maze12_30x30", "maze_size": 30,
+         "compare_plot_filename": "reward_vs_step_compare_three_maze12_30x30.pdf",
+         "compare_path_filename": "q_greedy_path_compare_three_maze12_30x30.pdf",
+         "maze_seed": 12, "algo": "eps", "variant": "eps", "output_name": "eps",
+         "label": "Epsilon-greedy", "sparse_fraction": base_sparse_fraction},
+    ])
+    experiments = [exp for exp in experiments if "scenario_key" in exp]
+    scenario_templates = [
+        {
+            "scenario_key": "maze_seed_1_size_20",
+            "scenario_label": "maze1_20x20_a",
+            "maze_seed": 1,
+            "maze_size": 20,
+            "proposed_bonus_constant": bonus_constant,
+            "proposed_sparse_fraction": base_sparse_fraction,
+            "proposed_use_sparse_reward_only": True,
+            "compare_plot_filename": "Fig2.pdf",
+            "compare_path_filename": "Fig1.pdf",
+        },
+        {
+            "scenario_key": "maze_seed_1_size_20_b",
+            "scenario_label": "maze1_20x20_b",
+            "maze_seed": 1,
+            "maze_size": 20,
+            "proposed_bonus_constant": bonus_constant,
+            "proposed_sparse_fraction": 1.0,
+            "proposed_use_sparse_reward_only": False,
+            "compare_plot_filename": "Fig4.pdf",
+            "compare_path_filename": "Fig3.pdf",
+        },
+        {
+            "scenario_key": "maze_seed_1_size_20_c",
+            "scenario_label": "maze1_20x20_c",
+            "maze_seed": 1,
+            "maze_size": 20,
+            "proposed_bonus_constant": bonus_constant,
+            "proposed_sparse_fraction": 1.0 / 2000.0,
+            "proposed_use_sparse_reward_only": False,
+            "compare_plot_filename": "Fig6.pdf",
+            "compare_path_filename": "Fig5.pdf",
+        },
+        {
+            "scenario_key": "maze_seed_1_size_20_d",
+            "scenario_label": "maze1_20x20_d",
+            "maze_seed": 1,
+            "maze_size": 20,
+            "proposed_bonus_constant": bonus_constant,
+            "proposed_sparse_fraction": 0.01,
+            "proposed_use_sparse_reward_only": False,
+            "compare_plot_filename": "Fig8.pdf",
+            "compare_path_filename": "Fig7.pdf",
+        },
+    ]
+    algorithm_templates = [
+        {
+            "algo": "ucb",
+            "variant": "base",
+            "output_name": "ucb",
+            "label": "UCB",
+            "sparse_fraction": base_sparse_fraction,
+        },
+        {
+            "algo": "ucb",
+            "variant": "sparse1",
+            "output_name": "ucb_h",
+            "label": "UCB-H",
+            "sparse_fraction": sparse_one,
+        },
+        {
+            "algo": "eps",
+            "variant": "eps",
+            "output_name": "eps",
+            "label": "ε-greedy",
+            "sparse_fraction": base_sparse_fraction,
+        },
+    ]
+    experiments = []
+    for scenario in scenario_templates:
+        for algo in algorithm_templates:
+            exp = {**scenario, **algo}
+            if algo["variant"] == "base":
+                exp["bonus_constant"] = scenario.get("proposed_bonus_constant", bonus_constant)
+                exp["sparse_fraction"] = scenario.get("proposed_sparse_fraction", base_sparse_fraction)
+                exp["use_sparse_reward_only"] = scenario.get("proposed_use_sparse_reward_only", False)
+            experiments.append(exp)
 
-    group_results: Dict[int, Dict[str, TrainingStats]] = {}
-    group_results_all: Dict[int, Dict[str, TrainingStats]] = {}
-    group_paths: Dict[int, Dict[str, List[Coordinate]]] = {}
-    group_paths_all: Dict[int, Dict[str, List[Coordinate]]] = {}
+    group_results_all: Dict[str, Dict[str, TrainingStats]] = {}
+    group_paths_all: Dict[str, Dict[str, List[Coordinate]]] = {}
+    scenario_meta: Dict[str, Dict[str, object]] = {}
 
     for exp in experiments:
-        group_dir = os.path.join(output_dir, f"maze_seed_{exp['maze_seed']}")
+        maze_size = int(exp.get("maze_size", config.get('maze_size', 15)))
+        scenario_key = exp.get("scenario_key", f"maze_seed_{exp['maze_seed']}_size_{maze_size}")
+        scenario_label = exp.get("scenario_label", f"maze{exp['maze_seed']}_{maze_size}x{maze_size}")
+        compare_plot_filename = exp.get(
+            "compare_plot_filename",
+            "Fig4.pdf" if exp["maze_seed"] == 1 else "Fig3.pdf" if exp["maze_seed"] == 12
+            else f"reward_vs_step_compare_three_{scenario_key}.pdf"
+        )
+        compare_path_filename = exp.get(
+            "compare_path_filename",
+            "Fig2.pdf" if exp["maze_seed"] == 1 else "Fig1.pdf" if exp["maze_seed"] == 12
+            else f"q_greedy_path_compare_three_{scenario_key}.pdf"
+        )
+        scenario_meta[scenario_key] = {
+            "maze_seed": exp["maze_seed"],
+            "maze_size": maze_size,
+            "compare_plot_filename": compare_plot_filename,
+            "compare_path_filename": compare_path_filename,
+        }
+        group_dir = os.path.join(output_dir, scenario_key)
         exp_output_dir = group_dir
         os.makedirs(exp_output_dir, exist_ok=True)
         subdirs = ["plots", "visualizations", "animations", "data", "tables"]
@@ -1309,8 +1500,13 @@ def main(**kwargs) -> None:
         print(f"Timestamp: {time.strftime('%Y-%m-%d %H:%M:%S')}")
         print(f"Base seed: {seed}")
         print(f"Maze seed: {exp['maze_seed']}")
+        print(f"Scenario: {scenario_label}")
         print(f"Algorithm: {exp['algo']}")
         print(f"Sparse fraction: {exp['sparse_fraction']}")
+        if exp["variant"] == "base":
+            print(f"Proposed bonus constant: {exp['bonus_constant']}")
+            print(f"Proposed sparse reward only: {exp.get('use_sparse_reward_only', False)}")
+        print(f"Maze size: {maze_size}x{maze_size}")
         print(f"Wall penalty: {wall_penalty}")
         print(f"Stay penalty: {stay_penalty}")
         print(f"Move penalty: {move_penalty}")
@@ -1319,22 +1515,21 @@ def main(**kwargs) -> None:
         print(f"Output dir: {exp_output_dir}")
         print("=" * 60)
 
-        # Use DFS corridor maze for experiments; MazeEnv._generate_maze is skipped here.
-        grid = build_corridor_maze(size=config.get('maze_size', 15), seed=exp["maze_seed"])
+        grid = build_corridor_maze(size=maze_size, seed=exp["maze_seed"])
 
         env = MazeEnv(
-            size=config.get('maze_size', 15),
+            size=maze_size,
             horizon=horizon,
             seed=config.get('env_seed', 42),
             grid=grid,
             start=(0, 0),
-            goal=(config.get('maze_size', 15) - 1, config.get('maze_size', 15) - 1),
+            goal=(maze_size - 1, maze_size - 1),
             wall_penalty=wall_penalty,
             stay_penalty=stay_penalty,
             move_penalty=move_penalty
         )
 
-        layout_path = os.path.join(exp_output_dir, "visualizations", "maze_layout.png")
+        layout_path = os.path.join(exp_output_dir, "visualizations", "maze_layout.pdf")
         save_maze_visualization(grid, env.start, env.goal, out_path=layout_path)
 
         if exp["algo"] == "ucb":
@@ -1343,26 +1538,26 @@ def main(**kwargs) -> None:
                 horizon=horizon,
                 episodes=episodes,
                 failure_prob=failure_prob,
-                bonus_constant=bonus_constant,
+                bonus_constant=exp.get("bonus_constant", bonus_constant),
                 sparse_fraction=exp["sparse_fraction"],
-                seed=seed
+                seed=seed,
+                use_sparse_reward_only=exp.get("use_sparse_reward_only", exp["variant"] == "sparse1")
             )
         else:
             agent = QLearningEpsilonGreedy(
                 env=env,
                 horizon=horizon,
                 episodes=episodes,
-                seed=seed
+                seed=seed,
+                use_sparse_reward_only=True
             )
 
         stats = agent.train(log_interval=log_interval, record_paths=record_paths)
         overall_success_rate = sum(stats.successes) / max(1, len(stats.successes))
-        if exp["algo"] == "ucb":
-            group_results.setdefault(exp["maze_seed"], {})[exp["variant"]] = stats
-        group_results_all.setdefault(exp["maze_seed"], {})[exp["output_name"]] = stats
+        group_results_all.setdefault(scenario_key, {})[exp["output_name"]] = stats
 
         reward_plot_path = os.path.join(
-            exp_output_dir, "plots", f"reward_vs_step_{exp['output_name']}.png"
+            exp_output_dir, "plots", f"reward_vs_step_{exp['output_name']}.pdf"
         )
         plot_reward_trace(stats.episodes, stats.rewards, out_path=reward_plot_path)
 
@@ -1372,9 +1567,27 @@ def main(**kwargs) -> None:
         stay_count = sum(1 for i in range(len(demo_path) - 1) if demo_path[i] == demo_path[i + 1])
         print(f"Demo path length: {len(demo_path)} | reward={demo_reward:.4f} | success={success}")
 
-        q_path = agent.greedy_path_from_q(env, deterministic=True)
+        if stats.episode_paths and stats.rewards:
+            best_reward_idx = int(np.argmax(stats.rewards))
+            best_reward_path = stats.episode_paths[best_reward_idx]
+            best_reward_value = stats.rewards[best_reward_idx]
+            best_reward_path_vis = os.path.join(
+                exp_output_dir, "visualizations", f"best_reward_path_{exp['output_name']}.pdf"
+            )
+            save_maze_visualization(
+                env.grid, env.start, env.goal, best_reward_path, best_reward_path_vis,
+                marker_style="line"
+            )
+            print(
+                f"Best reward path episode: {best_reward_idx + 1} | "
+                f"reward={best_reward_value:.4f}"
+            )
+
+        q_path = select_best_path(stats, env.goal)
+        if q_path is None:
+            q_path = agent.greedy_path_from_q(env, deterministic=True)
         q_path_vis = os.path.join(
-            exp_output_dir, "visualizations", f"q_greedy_path_{exp['output_name']}.png"
+            exp_output_dir, "visualizations", f"q_greedy_path_{exp['output_name']}.pdf"
         )
         if exp["algo"] == "eps":
             marker_style = "hollow_blue"
@@ -1386,9 +1599,7 @@ def main(**kwargs) -> None:
             env.grid, env.start, env.goal, q_path, q_path_vis,
             marker_style=marker_style
         )
-        if exp["algo"] == "ucb":
-            group_paths.setdefault(exp["maze_seed"], {})[exp["variant"]] = q_path
-        group_paths_all.setdefault(exp["maze_seed"], {})[exp["output_name"]] = q_path
+        group_paths_all.setdefault(scenario_key, {})[exp["output_name"]] = q_path
 
         if record_paths and stats.episode_paths:
             anim_path = os.path.join(
@@ -1428,6 +1639,8 @@ def main(**kwargs) -> None:
                 "name": config.get('experiment_name', 'maze_experiment'),
                 "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
                 "base_seed": seed,
+                "scenario_key": scenario_key,
+                "scenario_label": scenario_label,
                 "maze_seed": exp["maze_seed"],
                 "env_seed": config.get('env_seed', 42),
                 "algorithm": exp["algo"],
@@ -1465,11 +1678,11 @@ def main(**kwargs) -> None:
         with open(config_path, "w", encoding="utf-8") as f:
             json.dump(saved_config, f, indent=2, ensure_ascii=False)
 
-    for maze_seed, results in group_results_all.items():
+    for scenario_key, results in group_results_all.items():
         if "ucb" not in results or "ucb_h" not in results or "eps" not in results:
             continue
-        group_dir = os.path.join(output_dir, f"maze_seed_{maze_seed}")
-        compare_plot_path = os.path.join(group_dir, "plots", "reward_vs_step_compare_three.png")
+        compare_plot_filename = str(scenario_meta[scenario_key]["compare_plot_filename"])
+        compare_plot_path = os.path.join(output_dir, compare_plot_filename)
         plot_reward_comparison_three(
             results["ucb"], "Proposed",
             results["ucb_h"], "UCB-H",
@@ -1477,14 +1690,16 @@ def main(**kwargs) -> None:
             out_path=compare_plot_path
         )
 
-    for maze_seed, paths in group_paths_all.items():
+    for scenario_key, paths in group_paths_all.items():
         if "ucb" not in paths or "ucb_h" not in paths or "eps" not in paths:
             continue
-        group_dir = os.path.join(output_dir, f"maze_seed_{maze_seed}")
-        grid = build_corridor_maze(size=config.get('maze_size', 15), seed=maze_seed)
+        maze_seed = int(scenario_meta[scenario_key]["maze_seed"])
+        maze_size = int(scenario_meta[scenario_key]["maze_size"])
+        grid = build_corridor_maze(size=maze_size, seed=maze_seed)
         start = (0, 0)
-        goal = (config.get('maze_size', 15) - 1, config.get('maze_size', 15) - 1)
-        compare_path_out = os.path.join(group_dir, "visualizations", "q_greedy_path_compare_three.png")
+        goal = (maze_size - 1, maze_size - 1)
+        compare_path_filename = str(scenario_meta[scenario_key]["compare_path_filename"])
+        compare_path_out = os.path.join(output_dir, compare_path_filename)
         save_maze_visualization_compare_three(
             grid, start, goal,
             paths["ucb"], "Proposed",
@@ -1495,7 +1710,7 @@ def main(**kwargs) -> None:
 
     return
 
-    # Create output directory.
+    # 创建输出目录
     if output_dir is None:
         output_dir = ensure_output_dir()
     else:
@@ -1521,12 +1736,10 @@ def main(**kwargs) -> None:
     print("V值初始化: 0.0")
     print("=" * 60)
 
-    # Maze generation: fixed seed (reproducible layout).
-    # Alternative path if running the single-experiment block below (currently unreachable).
-    # Still uses the same corridor maze generator for consistent layouts.
+    # 迷宫生成：固定种子7（保证环境可复现）
     grid = build_corridor_maze(size=config.get('maze_size', 15), seed=config.get('maze_seed', 7))
 
-    # Environment init: fixed seed to keep transitions deterministic.
+    # 环境初始化：固定种子42（保证状态转移确定）
     env = MazeEnv(
         size=config.get('maze_size', 15),
         horizon=horizon,
@@ -1543,12 +1756,12 @@ def main(**kwargs) -> None:
     print(env.render())
     print(f"起点: {env.start}, 终点: {env.goal}")
 
-    # Save maze layout.
-    layout_path = os.path.join(output_dir, "visualizations", "maze_layout.png")
+    # 保存迷宫布局
+    layout_path = os.path.join(output_dir, "visualizations", "maze_layout.pdf")
     save_maze_visualization(grid, env.start, env.goal, out_path=layout_path)
     print(f"迷宫可视化保存至: {layout_path}")
 
-    # Algorithm init: use the specified seed.
+    # 算法初始化：使用指定种子
     agent = QLearningUCBHoeffdingSparse(
         env=env,
         horizon=horizon,
@@ -1566,24 +1779,24 @@ def main(**kwargs) -> None:
 
     stats = agent.train(log_interval=log_interval, record_paths=record_paths)
 
-    # Compute overall success rate.
+    # 计算总体成功率
     overall_success_rate = sum(stats.successes) / max(1, len(stats.successes))
 
     print("\n训练完成!")
     print(f"最终成功率: {stats.success_rate:.4f}")
     print(f"总体成功率: {overall_success_rate:.4f}")
 
-    # Save reward curve plot.
-    reward_plot_path = os.path.join(output_dir, "plots", "reward_vs_step.png")
+    # 保存奖励曲线图
+    reward_plot_path = os.path.join(output_dir, "plots", "reward_vs_step.pdf")
     plot_reward_trace(stats.episodes, stats.rewards, out_path=reward_plot_path)
     print(f"奖励曲线图保存至: {reward_plot_path}")
 
-    # Evaluate the trained policy.
+    # 评估训练好的策略
     print("\n开始评估训练好的策略...")
     success_rate, avg_reward = agent.evaluate(env, episodes=eval_episodes)
     print(f"评估结果 - 成功率: {success_rate:.4f}, 平均奖励: {avg_reward:.4f}")
 
-    # Demonstrate the greedy policy once.
+    # 演示一次最优策略
     print("\n演示最优策略路径...")
     demo_path, demo_reward, success = agent.rollout(env)
     stay_count = sum(1 for i in range(len(demo_path) - 1) if demo_path[i] == demo_path[i + 1])
@@ -1593,15 +1806,15 @@ def main(**kwargs) -> None:
     print("路径轨迹:")
     print(env.render(demo_path))
 
-    # Build the greedy path from the Q-table.
+    # 根据Q表生成最优路径（贪婪）
     print("\n根据Q表生成最优路径...")
     q_path = agent.greedy_path_from_q(env, deterministic=True)
     print(env.render(q_path))
-    q_path_vis = os.path.join(output_dir, "visualizations", "q_greedy_path.png")
+    q_path_vis = os.path.join(output_dir, "visualizations", "q_greedy_path.pdf")
     save_maze_visualization(env.grid, env.start, env.goal, q_path, q_path_vis)
     print(f"Q表最优路径可视化保存至: {q_path_vis}")
 
-    # Save animation.
+    # 保存动画
     if record_paths and stats.episode_paths:
         anim_path = os.path.join(output_dir, "animations", "episode_paths.gif")
         save_episode_animation(
@@ -1613,7 +1826,7 @@ def main(**kwargs) -> None:
         )
         print(f"训练过程动画保存至: {anim_path}")
 
-    # Save Q-table and visit counts.
+    # 保存Q表和访问次数
     q_table_path = os.path.join(output_dir, "tables", "q_table_detailed.txt")
     agent.save_q_table_with_coordinates(q_table_path, env)
     print(f"详细Q表保存至: {q_table_path}")
@@ -1626,11 +1839,11 @@ def main(**kwargs) -> None:
     agent.save_q_table_summary(q_summary_path, env)
     print(f"Q表统计摘要保存至: {q_summary_path}")
 
-    # Save experiment configuration.
+    # 保存实验配置
     config_path = os.path.join(output_dir, "data", "experiment_config.json")
     os.makedirs(os.path.dirname(config_path), exist_ok=True)
 
-    # Save the full configuration.
+    # 保存完整的配置信息
     saved_config = {
         "experiment_info": {
             "name": config.get('experiment_name', 'maze_experiment'),
@@ -1674,13 +1887,13 @@ def main(**kwargs) -> None:
     print(f"完整实验配置已保存至: {config_path}")
 
 
-# Adjust the main invocation block.
+# 修改main函数的调用部分
 if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser(description="迷宫强化学习实验 - 稀疏奖励感知版本")
 
-    # Original arguments (backward compatible).
+    # 原有参数（保持向后兼容）
     parser.add_argument("--seed", type=int, default=None,
                         help="基础随机种子（默认为随机生成）")
     parser.add_argument("--output_dir", type=str, default=None,
@@ -1698,7 +1911,7 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    # Filter out None values and pass only provided args.
+    # 过滤掉None值，只传递有值的参数
     kwargs = {k: v for k, v in vars(args).items() if v is not None}
 
     main(**kwargs)
