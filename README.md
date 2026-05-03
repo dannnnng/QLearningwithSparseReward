@@ -1,142 +1,155 @@
-# Maze Reinforcement Learning Experiments (UCB + Sparse Reward + ε-greedy)
+# Maze Reinforcement Learning Experiments
 
-This script implements a deterministic maze environment and compares two RL approaches:
-- UCB-Hoeffding sparse-reward-aware Q-learning (UCB / UCB-H variants)
-- ε-greedy Q-learning baseline
+This repository contains a single Python script, [QLearningUCBsparse-Maze1.py](./QLearningUCBsparse-Maze1.py), for running maze-navigation reinforcement learning experiments and exporting publication-style figures.
 
-The main program runs multiple experiments on two fixed maze seeds and saves reward curves, path visualizations, Q-tables, and summary statistics.
+The script compares three methods on the same maze:
 
-## Files
-- `QLearningUCBsparse-Maze.py`: main script with environment, algorithms, training, and visualization.
+- `Proposed`
+- `UCB-H`
+- `ε-greedy`
 
-## Environment and Maze
-### State and Action
-- State: `(row, col)` on a `size * size` grid.
-- Actions: 5 discrete actions.
-  - `UP` `RIGHT` `DOWN` `LEFT` `STAY`
-  - `STAY` means no movement.
+It also exports:
 
-### Transition and Termination
-- Hitting a wall or boundary: state does not change and is counted as a wall hit.
-- Reaching `goal`: counted as success and rewarded.
-- Each episode ends after at most `horizon` steps.
+- reward curves
+- path visualizations
+- path comparison figures
+- GIF animations of episode trajectories
+- Q-table and visit-count summaries
 
-### Reward Design
-- Reach goal: `+1.0`
-- Wall hit: `wall_penalty` (default `-100.0`)
-- Stay in place: `stay_penalty` (default `-0.2`)
-- Normal move: `move_penalty` (default `-0.2`)
+## Features
 
-### Maze Generation
-- `build_corridor_maze()` uses DFS backtracking to generate corridor-style mazes, keeps the start neighborhood open, and opens cells near the goal.
-- The main flow always uses this generator; `MazeEnv._generate_maze()` is only used when no external grid is provided.
+- Deterministic maze generation from a seed
+- Configurable maze size, horizon, penalties, and number of episodes
+- Side-by-side comparison of three algorithms
+- Support for sparse-reward-only evaluation/training for selected methods
+- Automatic export of PDF figures for reports or papers
 
 ## Algorithms
-### 1) QLearning UCB Hoeffding Sparse (UCB with sparse reward awareness)
-- Goal: improve exploration in sparse reward settings.
-- Q initialization: `Q(s,a) = s = sparse_fraction * H`.
-- V initialization: `0.0`.
-- Visit counts: `t = N(s,a)`.
-- UCB bonus:
-  - `ι = log(S * A * H * K / failure_prob)`
-  - `δ = bonus_constant = 1`
-- Update (per step):
-  - `bonus = δ / √t`
-  - `α = (H + 1) / (H + t)`
-  - `Q(s,a) <- (1 - α) * Q(s,a) + α * (r + V(s') + bonus)`
-  - `V(s) <- min(s, max_a Q(s,a))`
-- Evaluation: greedy policy rollout; report success rate and average reward.
-- Extra: custom random pools (episode/step) for reproducible tie-breaking and sampling.
 
-#### Parameter Meaning and Rationale
-- `sparse_fraction`: defines the sparse-reward horizon proxy `s = sparse_fraction * H`. It sets the optimistic prior scale for Q-values and the exploration bonus magnitude. `0.01` models a highly sparse reward regime; `1.0` (UCB-H) removes sparsity assumptions and makes the bonus effectively scale with the full horizon.
-- `failure_prob`: appears in `ι = log(S * A * H * K / failure_prob)` as a confidence parameter. Smaller values increase the log term, producing a larger bonus (more exploration) and more conservative confidence; larger values reduce exploration pressure.
-- `bonus_constant`: a multiplicative factor on the exploration bonus. `1.0` is a neutral baseline; increasing it strengthens exploration and can slow exploitation, decreasing it does the opposite.
+The script currently includes:
 
-#### Design Notes
-- `c` is computed as `bonus_constant / (s * sqrt(H * ι))` so that the resulting bonus `c * s * sqrt(H * ι / t)` stays bounded and roughly on the same scale across different horizons and sparsity settings. This keeps the bonus from dominating rewards when `H` is large.
-- The learning-rate schedule `α = (H + 1) / (H + t)` is a decreasing step size commonly used in finite-horizon tabular settings to temper updates as visit count `t` grows. It emphasizes early optimistic updates while stabilizing later.
-- Q is initialized to `s = sparse_fraction * H` to encode optimistic values in sparse-reward tasks, encouraging exploration before enough positive rewards are observed. Larger initialization yields more optimistic exploration; smaller values reduce that effect.
+- `QLearningUCBHoeffdingSparse`
+  - Used for both `Proposed` and `UCB-H`
+  - Group-specific settings can be assigned to `Proposed`
+- `QLearningEpsilonGreedy`
 
-### 2) QLearning εGreedy (baseline)
-- Q-learning update:
-  - `Q(s,a) <- Q(s,a) + 0.2 * (r + 0.99 * max_a' Q(s',a') - Q(s,a))`
-- Behavior policy: fixed ε-greedy (ε = 0.1 , no decay).
-- Evaluation: greedy policy (`argmax_a Q(s,a)`) after training.
+## Current Experiment Setup
 
-## Experiment Flow (main)
-The main function runs following experiments:
-- Maze seeds `1` and `12`
-- Algorithms and settings:
-  - `UCB-H-Sparse-Reward-Awareness` (`Proposed, sparse_fraction=0.01`) 
-- baseline:
-  - `ε-greedy` (`ε=0.1`）
-  - `UCB-H` (`sparse_fraction=1.0`)
+The current experiment batch is defined inside `main()` and uses four groups:
 
-Each run outputs reward curves, Q tables, path visualizations, and config data, plus a three-method comparison plot on the same maze.
+- `maze1_20x20_a`
+- `maze1_20x20_b`
+- `maze1_20x20_c`
+- `maze1_20x20_d`
 
-## Experiment Design Notes
-- Maze seeds `1` and `12` provide two deterministic but different layouts for a small cross-check. They are not special beyond producing distinct maze structures.
-- `episodes=200` is a trade-off between runtime and learning progress for this grid size. Convergence is typically assessed by stabilization of reward curves and success rate; increase episodes if curves keep trending upward.
-- `eval_episodes=200` reduces variance in success-rate estimates by averaging over more rollouts. Fewer episodes yield noisier estimates; more episodes reduce noise but increase runtime.
+Each group runs the following three methods:
 
-## How to Run
+- `Proposed`
+- `UCB-H`
+- `ε-greedy`
+
+The current group-level `Proposed` settings are:
+
+1. Group `a`
+   - no reward shaping
+   - `sparse_fraction = 0.01`
+2. Group `b`
+   - reward shaping enabled
+   - `sparse_fraction = 1.0`
+3. Group `c`
+   - reward shaping enabled
+   - `sparse_fraction = 0.0005`
+4. Group `d`
+   - reward shaping enabled
+   - `sparse_fraction = 0.01`
+
+For the current code:
+
+- `UCB-H` is configured to train without reward shaping
+- `ε-greedy` is configured to train without reward shaping
+
+## Requirements
+
+Install Python 3.10+ and the following packages:
+
 ```bash
-python QLearningUCBsparse-Maze.py
+pip install numpy matplotlib pillow
 ```
 
-### Command-line Arguments
-- `--seed`: base random seed (default: random)
-- `--output_dir`: output directory (default: timestamp folder)
-- `--wall_penalty`: wall-hit penalty
-- `--stay_penalty`: stay penalty
-- `--move_penalty`: move penalty
-- `--episodes`: number of training episodes (default: 200)
-- `--horizon`: max steps per episode (default: 2000)
+## Run
 
-### Other Fixed Parameters (in `main()`)
-- `maze_size=15`
-- `failure_prob=0.1`
-- `bonus_constant=1.0`
-- `sparse_fraction=0.01`
-- `log_interval=100`
-- `eval_episodes=200`
-- `record_paths=True`
+Run the script directly:
+
+```bash
+python QLearningUCBsparse-Maze1.py
+```
+
+Optional command-line arguments:
+
+```bash
+python QLearningUCBsparse-Maze1.py \
+  --seed 42 \
+  --episodes 200 \
+  --horizon 2000 \
+  --wall_penalty -100 \
+  --stay_penalty -0.2 \
+  --move_penalty -0.2
+```
+
+Supported CLI arguments:
+
+- `--seed`
+- `--output_dir`
+- `--wall_penalty`
+- `--stay_penalty`
+- `--move_penalty`
+- `--episodes`
+- `--horizon`
 
 ## Output Structure
-Default output is a timestamped folder (for example `20260113_185648/`), with one subfolder per maze seed:
-```
-<output_dir>/
-  maze_seed_1/
-    plots/
-    visualizations/
-    animations/
-    data/
-    tables/
-  maze_seed_12/
-    ...
-```
 
-### Typical Outputs
-- `plots/reward_vs_step_*.png`: reward curves
-- `plots/reward_vs_step_compare_three.png`: three-method comparison curve
-- `visualizations/maze_layout.png`: maze layout
-- `visualizations/q_greedy_path_*.png`: greedy path from Q-table
-- `visualizations/q_greedy_path_compare_three.png`: path comparison
-- `animations/episode_paths_*.gif`: training path animation (when recording)
-- `tables/q_table_detailed_*.txt`: full Q table with coordinates
-- `tables/q_table_summary_*.txt`: Q table summary stats
-- `tables/visit_counts_*.txt`: visit counts
-- `data/experiment_config_*.json`: experiment config and results
+Each run creates a timestamp-named output directory containing subfolders such as:
 
-## Dependencies
-- Python 3.9+ (3.10+ recommended)
-- `numpy`
-- `matplotlib`
-- `pillow` (for GIF export)
+- `plots/`
+- `visualizations/`
+- `animations/`
+- `data/`
+- `tables/`
 
-## Reproducibility
-- Use `seed` to fix the base random seed.
+The script also exports summary PDF figures in the root of the output directory, currently named:
+
+- `Fig1.pdf` to `Fig8.pdf`
+
+These correspond to:
+
+- path comparison figures
+- reward comparison figures
+
+for groups `a`, `b`, `c`, and `d`.
+
+## Main File
+
+Core implementation is in:
+
+- [QLearningUCBsparse-Maze.py](./QLearningUCBsparse-Maze.py)
+
+Important sections:
+
+- `MazeEnv`: environment dynamics and rewards
+- `QLearningUCBHoeffdingSparse`: proposed / UCB-H implementation
+- `QLearningEpsilonGreedy`: epsilon-greedy baseline
+- plotting and export helpers
+- `main()`: experiment configuration and batch execution
+
+## Notes
+
+- Some historical experiment configuration code remains in the file but is no longer the active path; the effective experiment batch is the one built from `scenario_templates` and `algorithm_templates` inside `main()`.
+- Figure naming and group settings are currently hardcoded for the present experiment design.
+
+## License
+
+Add a license file if you plan to publish the repository publicly.
+
 - UCB uses custom random pools for reproducible tie-breaking and evaluation.
 - Maze generation uses fixed `maze_seed`; different seeds produce different layouts.
 
