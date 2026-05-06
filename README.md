@@ -91,7 +91,6 @@ python QLearningUCBsparse-Maze1.py \
   --seed 42 \
   --episodes 200 \
   --horizon 2000 \
-  --wall_penalty -100 \
   --stay_penalty -0.2 \
   --move_penalty -0.2
 ```
