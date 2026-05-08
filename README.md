@@ -1,6 +1,6 @@
 ## Qlearning Maze Reinforcement Learning Experiments
 
-This repository contains a single Python script, [QLearningUCBsparse-Maze.py](./QLearningUCBsparse-Maze.py), for running maze-navigation reinforcement learning experiments and exporting publication-style figures.
+This repository contains a single Python script, [QLearningUCBsparse-Maze1.py](./QLearningUCBsparse-Maze1.py), for running maze-navigation reinforcement learning experiments and exporting publication-style figures.
 
 The script compares three methods on the same maze:
 
@@ -52,21 +52,27 @@ The current group-level `Proposed` settings are:
 
 1. Group `a`
    - no reward shaping
+   - `move_penalty = 0.0`
    - `sparse_fraction = 0.01`
 2. Group `b`
    - reward shaping enabled
+   - `move_penalty = -0.2`
    - `sparse_fraction = 1.0`
 3. Group `c`
    - reward shaping enabled
-   - `sparse_fraction = 0.0005`
+   - `move_penalty = -0.2`
+   - `sparse_fraction = 1 / 2000`
 4. Group `d`
    - reward shaping enabled
+   - `move_penalty = -0.2`
    - `sparse_fraction = 0.01`
 
 For the current code:
 
-- `UCB-H` is configured to train without reward shaping
-- `ε-greedy` is configured to train without reward shaping
+- reward shaping refers only to setting the normal move penalty to `-0.2`
+- `UCB-H` is configured to train without reward shaping, so its normal move penalty is `0.0`
+- `ε-greedy` is configured to train without reward shaping, so its normal move penalty is `0.0`
+- wall and stay penalties still apply to all methods
 
 ## Requirements
 
@@ -91,6 +97,7 @@ python QLearningUCBsparse-Maze1.py \
   --seed 42 \
   --episodes 200 \
   --horizon 2000 \
+  --wall_penalty -100(Introduced by the environment) \
   --stay_penalty -0.2 \
   --move_penalty -0.2
 ```
@@ -130,7 +137,7 @@ for groups `a`, `b`, `c`, and `d`.
 
 Core implementation is in:
 
-- [QLearningUCBsparse-Maze.py](./QLearningUCBsparse-Maze.py)
+- [QLearningUCBsparse-Maze1.py](./QLearningUCBsparse-Maze1.py)
 
 Important sections:
 
@@ -145,13 +152,3 @@ Important sections:
 - Some historical experiment configuration code remains in the file but is no longer the active path; the effective experiment batch is the one built from `scenario_templates` and `algorithm_templates` inside `main()`.
 - Figure naming and group settings are currently hardcoded for the present experiment design.
 
-## License
-
-Add a license file if you plan to publish the repository publicly.
-
-- UCB uses custom random pools for reproducible tie-breaking and evaluation.
-- Maze generation uses fixed `maze_seed`; different seeds produce different layouts.
-
-## Notes
-- The `STAY` action is included to study the effect of no-move behavior in sparse reward tasks and has a separate penalty.
-- To run only a subset of algorithms, edit the `experiments` list in `main()`.
