@@ -264,8 +264,26 @@ def select_best_path(stats: TrainingStats, goal: Coordinate) -> List[Coordinate]
     return stats.episode_paths[best_idx]
 
 
+def compute_reward_axis(reward_series_list: Sequence[Sequence[float]]) -> Tuple[int, int, int]:
+    """Computes a shared y-axis range and tick step for reward plots."""
+    all_rewards = [reward for series in reward_series_list for reward in series]
+    if all_rewards:
+        reward_max = max(all_rewards)
+    else:
+        reward_max = 0.0
+
+    y_tick_step = 1000
+    y_lower = -6000
+    y_upper = int(math.ceil((reward_max + 0.05 * max(abs(reward_max), 1.0)) / y_tick_step) * y_tick_step)
+    if y_lower == y_upper:
+        y_upper = y_lower + y_tick_step
+    return y_lower, y_upper, y_tick_step
+
+
 def plot_reward_trace(episodes: Sequence[int], rewards: Sequence[float],
-                      out_path: str = "reward_vs_step.png", window: int = 50) -> str:
+                      out_path: str = "reward_vs_step.png", window: int = 50,
+                      y_lower: int | None = None, y_upper: int | None = None,
+                      y_tick_step: int | None = None) -> str:
     """Plots reward vs. step (episode index) and saves to disk."""
     plt.figure(figsize=(6, 6))
     plt.plot(episodes, rewards, label="Episode Reward", alpha=0.3)
@@ -276,12 +294,11 @@ def plot_reward_trace(episodes: Sequence[int], rewards: Sequence[float],
     ax.yaxis.set_label_coords(-0.14, 0.5)
     # No title per request.
     plt.xlim(0, 200)
-    y_tick_step = 1000
-    max_reward = max(rewards) if rewards else 0.0
-    y_upper = max(1000, int(math.ceil((max_reward + 0.5 * y_tick_step) / y_tick_step) * y_tick_step))
-    plt.ylim(-5000, y_upper)
+    if y_lower is None or y_upper is None or y_tick_step is None:
+        y_lower, y_upper, y_tick_step = compute_reward_axis([rewards])
+    plt.ylim(y_lower, y_upper)
     ax.set_xticks(np.arange(0, 201, 20))
-    ax.set_yticks(np.arange(-5000, y_upper + y_tick_step, y_tick_step))
+    ax.set_yticks(np.arange(y_lower, y_upper + y_tick_step, y_tick_step))
     plt.setp(ax.get_xticklabels(), fontweight="bold")
     plt.setp(ax.get_yticklabels(), fontweight="bold")
     plt.grid(True, linestyle="--", alpha=0.3)
@@ -302,7 +319,9 @@ def plot_reward_trace(episodes: Sequence[int], rewards: Sequence[float],
 def plot_reward_comparison_three(stats_a: TrainingStats, label_a: str,
                                  stats_b: TrainingStats, label_b: str,
                                  stats_c: TrainingStats, label_c: str,
-                                 out_path: str = "reward_vs_step_compare_three.png") -> str:
+                                 out_path: str = "reward_vs_step_compare_three.png",
+                                 y_lower: int | None = None, y_upper: int | None = None,
+                                 y_tick_step: int | None = None) -> str:
     """Plots reward vs. episode for three runs on the same figure."""
     plt.figure(figsize=(6, 6))
     plt.plot(stats_a.episodes, stats_a.rewards, color="red", alpha=0.6, label=label_a)
@@ -315,13 +334,13 @@ def plot_reward_comparison_three(stats_a: TrainingStats, label_a: str,
     ax.yaxis.set_label_coords(-0.14, 0.5)
     plt.grid(True, linestyle="--", alpha=0.3)
     plt.xlim(0, 200)
-    y_tick_step = 1000
-    all_rewards = list(stats_a.rewards) + list(stats_b.rewards) + list(stats_c.rewards)
-    max_reward = max(all_rewards) if all_rewards else 0.0
-    y_upper = max(1000, int(math.ceil((max_reward + 0.5 * y_tick_step) / y_tick_step) * y_tick_step))
-    plt.ylim(-5000, y_upper)
+    if y_lower is None or y_upper is None or y_tick_step is None:
+        y_lower, y_upper, y_tick_step = compute_reward_axis(
+            [stats_a.rewards, stats_b.rewards, stats_c.rewards]
+        )
+    plt.ylim(y_lower, y_upper)
     ax.set_xticks(np.arange(0, 201, 20))
-    ax.set_yticks(np.arange(-5000, y_upper + y_tick_step, y_tick_step))
+    ax.set_yticks(np.arange(y_lower, y_upper + y_tick_step, y_tick_step))
     plt.setp(ax.get_xticklabels(), fontweight="bold")
     plt.setp(ax.get_yticklabels(), fontweight="bold")
     plt.legend(loc="lower right", fontsize=12)
@@ -1315,7 +1334,7 @@ def main(**kwargs) -> None:
     output_dir = kwargs.get('output_dir', config.get('output_dir'))
     wall_penalty = kwargs.get('wall_penalty', config.get('wall_penalty'))
     stay_penalty = kwargs.get('stay_penalty', config.get('stay_penalty'))
-    move_penalty = kwargs.get('move_penalty', config.get('move_penalty'))
+    reward_shaping_move_penalty = kwargs.get('move_penalty', config.get('move_penalty'))
     episodes = kwargs.get('episodes', config.get('episodes'))
     horizon = kwargs.get('horizon', config.get('horizon'))
 
@@ -1394,6 +1413,7 @@ def main(**kwargs) -> None:
             "proposed_bonus_constant": bonus_constant,
             "proposed_sparse_fraction": base_sparse_fraction,
             "proposed_use_sparse_reward_only": True,
+            "proposed_use_reward_shaping": False,
             "compare_plot_filename": "Fig2.pdf",
             "compare_path_filename": "Fig1.pdf",
         },
@@ -1405,6 +1425,7 @@ def main(**kwargs) -> None:
             "proposed_bonus_constant": bonus_constant,
             "proposed_sparse_fraction": 1.0,
             "proposed_use_sparse_reward_only": False,
+            "proposed_use_reward_shaping": True,
             "compare_plot_filename": "Fig4.pdf",
             "compare_path_filename": "Fig3.pdf",
         },
@@ -1416,6 +1437,7 @@ def main(**kwargs) -> None:
             "proposed_bonus_constant": bonus_constant,
             "proposed_sparse_fraction": 1.0 / 2000.0,
             "proposed_use_sparse_reward_only": False,
+            "proposed_use_reward_shaping": True,
             "compare_plot_filename": "Fig6.pdf",
             "compare_path_filename": "Fig5.pdf",
         },
@@ -1427,6 +1449,7 @@ def main(**kwargs) -> None:
             "proposed_bonus_constant": bonus_constant,
             "proposed_sparse_fraction": 0.01,
             "proposed_use_sparse_reward_only": False,
+            "proposed_use_reward_shaping": True,
             "compare_plot_filename": "Fig8.pdf",
             "compare_path_filename": "Fig7.pdf",
         },
@@ -1462,8 +1485,12 @@ def main(**kwargs) -> None:
                 exp["bonus_constant"] = scenario.get("proposed_bonus_constant", bonus_constant)
                 exp["sparse_fraction"] = scenario.get("proposed_sparse_fraction", base_sparse_fraction)
                 exp["use_sparse_reward_only"] = scenario.get("proposed_use_sparse_reward_only", False)
+                exp["use_reward_shaping"] = scenario.get("proposed_use_reward_shaping", False)
+            else:
+                exp["use_reward_shaping"] = False
             experiments.append(exp)
 
+    reward_axis_series: List[Sequence[float]] = []
     group_results_all: Dict[str, Dict[str, TrainingStats]] = {}
     group_paths_all: Dict[str, Dict[str, List[Coordinate]]] = {}
     scenario_meta: Dict[str, Dict[str, object]] = {}
@@ -1506,10 +1533,12 @@ def main(**kwargs) -> None:
         if exp["variant"] == "base":
             print(f"Proposed bonus constant: {exp['bonus_constant']}")
             print(f"Proposed sparse reward only: {exp.get('use_sparse_reward_only', False)}")
+            print(f"Proposed reward shaping: {exp.get('use_reward_shaping', False)}")
+        exp_move_penalty = reward_shaping_move_penalty if exp.get("use_reward_shaping", False) else 0.0
         print(f"Maze size: {maze_size}x{maze_size}")
         print(f"Wall penalty: {wall_penalty}")
         print(f"Stay penalty: {stay_penalty}")
-        print(f"Move penalty: {move_penalty}")
+        print(f"Move penalty: {exp_move_penalty}")
         print(f"Episodes: {episodes}")
         print(f"Horizon: {horizon}")
         print(f"Output dir: {exp_output_dir}")
@@ -1526,7 +1555,7 @@ def main(**kwargs) -> None:
             goal=(maze_size - 1, maze_size - 1),
             wall_penalty=wall_penalty,
             stay_penalty=stay_penalty,
-            move_penalty=move_penalty
+            move_penalty=exp_move_penalty
         )
 
         layout_path = os.path.join(exp_output_dir, "visualizations", "maze_layout.pdf")
@@ -1541,7 +1570,7 @@ def main(**kwargs) -> None:
                 bonus_constant=exp.get("bonus_constant", bonus_constant),
                 sparse_fraction=exp["sparse_fraction"],
                 seed=seed,
-                use_sparse_reward_only=exp.get("use_sparse_reward_only", exp["variant"] == "sparse1")
+                use_sparse_reward_only=exp.get("use_sparse_reward_only", False)
             )
         else:
             agent = QLearningEpsilonGreedy(
@@ -1549,17 +1578,13 @@ def main(**kwargs) -> None:
                 horizon=horizon,
                 episodes=episodes,
                 seed=seed,
-                use_sparse_reward_only=True
+                use_sparse_reward_only=False
             )
 
         stats = agent.train(log_interval=log_interval, record_paths=record_paths)
+        reward_axis_series.append(stats.rewards)
         overall_success_rate = sum(stats.successes) / max(1, len(stats.successes))
         group_results_all.setdefault(scenario_key, {})[exp["output_name"]] = stats
-
-        reward_plot_path = os.path.join(
-            exp_output_dir, "plots", f"reward_vs_step_{exp['output_name']}.pdf"
-        )
-        plot_reward_trace(stats.episodes, stats.rewards, out_path=reward_plot_path)
 
         success_rate, avg_reward = agent.evaluate(env, episodes=eval_episodes)
 
@@ -1651,13 +1676,14 @@ def main(**kwargs) -> None:
                 "horizon": horizon,
                 "wall_penalty": wall_penalty,
                 "stay_penalty": stay_penalty,
-                "move_penalty": move_penalty,
+                "move_penalty": exp_move_penalty,
             },
             "algorithm_params": {
                 "episodes": episodes,
                 "failure_prob": failure_prob,
                 "bonus_constant": bonus_constant,
                 "sparse_fraction": exp["sparse_fraction"],
+                "use_reward_shaping": exp.get("use_reward_shaping", False),
             },
             "training_params": {
                 "log_interval": log_interval,
@@ -1678,6 +1704,26 @@ def main(**kwargs) -> None:
         with open(config_path, "w", encoding="utf-8") as f:
             json.dump(saved_config, f, indent=2, ensure_ascii=False)
 
+    shared_y_lower, shared_y_upper, shared_y_tick_step = compute_reward_axis(reward_axis_series)
+
+    for exp in experiments:
+        maze_size = int(exp.get("maze_size", config.get('maze_size', 15)))
+        scenario_key = exp.get("scenario_key", f"maze_seed_{exp['maze_seed']}_size_{maze_size}")
+        stats = group_results_all.get(scenario_key, {}).get(exp["output_name"])
+        if stats is None:
+            continue
+        reward_plot_path = os.path.join(
+            output_dir, scenario_key, "plots", f"reward_vs_step_{exp['output_name']}.pdf"
+        )
+        plot_reward_trace(
+            stats.episodes,
+            stats.rewards,
+            out_path=reward_plot_path,
+            y_lower=shared_y_lower,
+            y_upper=shared_y_upper,
+            y_tick_step=shared_y_tick_step
+        )
+
     for scenario_key, results in group_results_all.items():
         if "ucb" not in results or "ucb_h" not in results or "eps" not in results:
             continue
@@ -1687,7 +1733,10 @@ def main(**kwargs) -> None:
             results["ucb"], "Proposed",
             results["ucb_h"], "UCB-H",
             results["eps"], "ε-greedy",
-            out_path=compare_plot_path
+            out_path=compare_plot_path,
+            y_lower=shared_y_lower,
+            y_upper=shared_y_upper,
+            y_tick_step=shared_y_tick_step
         )
 
     for scenario_key, paths in group_paths_all.items():
@@ -1915,5 +1964,3 @@ if __name__ == "__main__":
     kwargs = {k: v for k, v in vars(args).items() if v is not None}
 
     main(**kwargs)
-
-
