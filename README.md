@@ -102,8 +102,8 @@ python QLearningUCBsparse-Maze1.py \
   --episodes 200 \
   --horizon 2000 \
   --wall_penalty -100 (introduced by the environment, or equivalently we can cancel the invalid Q(x,a)) \
-  --stay_penalty -0 \
-  --move_penalty -0
+  --stay_penalty -0.2 \
+  --move_penalty -0.2
 ```
 
 Supported CLI arguments:
