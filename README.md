@@ -48,7 +48,7 @@ Each experiment runs the following three methods:
 - `UCB-H`
 - `ε-greedy`
 
-The current experiment-level `Proposed` settings are:
+The current `Proposed` settings are:
 
 1. Experiment `a`
    - no reward shaping
