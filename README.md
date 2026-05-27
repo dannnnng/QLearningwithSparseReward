@@ -50,22 +50,22 @@ Each group runs the following three methods:
 
 The current group-level `Proposed` settings are:
 
-1. Group `a`
+1. Experiment `a`
    - no reward shaping
    - `move_penalty = 0.0`
    - `stay_penalty = 0.0`
    - `sparse_fraction = 0.01`
-2. Group `b`
+2. Experiment `b`
    - reward shaping enabled
    - `move_penalty = -0.2`
    - `stay_penalty = -0.2`
    - `sparse_fraction = 1.0`
-3. Group `c`
+3. Experiment `c`
    - reward shaping enabled
    - `move_penalty = -0.2`
    - `stay_penalty = -0.2`
    - `sparse_fraction = 1 / 2000`
-4. Group `d`
+4. Experiment `d`
    - reward shaping enabled
    - `move_penalty = -0.2`
    - `stay_penalty = -0.2`
