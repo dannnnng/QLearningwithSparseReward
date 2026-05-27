@@ -53,25 +53,29 @@ The current group-level `Proposed` settings are:
 1. Group `a`
    - no reward shaping
    - `move_penalty = 0.0`
+   - `stay_penalty = 0.0`
    - `sparse_fraction = 0.01`
 2. Group `b`
    - reward shaping enabled
    - `move_penalty = -0.2`
+   - `stay_penalty = -0.2`
    - `sparse_fraction = 1.0`
 3. Group `c`
    - reward shaping enabled
    - `move_penalty = -0.2`
+   - `stay_penalty = -0.2`
    - `sparse_fraction = 1 / 2000`
 4. Group `d`
    - reward shaping enabled
    - `move_penalty = -0.2`
+   - `stay_penalty = -0.2`
    - `sparse_fraction = 0.01`
 
 For the current code:
 
-- reward shaping refers only to setting the normal move penalty to `-0.2`
-- `UCB-H` is configured to train without reward shaping, so its normal move penalty is `0.0`
-- `ε-greedy` is configured to train without reward shaping, so its normal move penalty is `0.0`
+- reward shaping refers to setting the normal move penalty and stay penalty to `-0.2`
+- `UCB-H` is configured to train without reward shaping, so its normal move penalty and stay penalty is `0.0`
+- `ε-greedy` is configured to train without reward shaping, so its normal move penalty and stay penalty is `0.0`
 - wall and stay penalties still apply to all methods
 
 ## Requirements
@@ -98,8 +102,8 @@ python QLearningUCBsparse-Maze1.py \
   --episodes 200 \
   --horizon 2000 \
   --wall_penalty -100 (introduced by the environment, or equivalently we can cancel the invalid Q(x,a)) \
-  --stay_penalty -0.2 \
-  --move_penalty -0.2
+  --stay_penalty -0 \
+  --move_penalty -0
 ```
 
 Supported CLI arguments:
