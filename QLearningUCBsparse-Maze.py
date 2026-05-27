@@ -31,8 +31,8 @@ class MazeEnv:
     def __init__(self, size: int = 15, horizon: int = 500, seed: int = 42,
                  grid: np.ndarray | None = None, start: Coordinate | None = None,
                  goal: Coordinate | None = None, wall_penalty: float = -1,
-                 stay_penalty: float = -0.5,
-                 move_penalty: float = -0.2) -> None:
+                 stay_penalty: float = 0.0,
+                 move_penalty: float = 0.0) -> None:
         self.size = size
         self.horizon = horizon
         # 固定种子用于迷宫生成，保证环境可复现
@@ -266,17 +266,11 @@ def select_best_path(stats: TrainingStats, goal: Coordinate) -> List[Coordinate]
 
 def compute_reward_axis(reward_series_list: Sequence[Sequence[float]]) -> Tuple[int, int, int]:
     """Computes a shared y-axis range and tick step for reward plots."""
-    all_rewards = [reward for series in reward_series_list for reward in series]
-    if all_rewards:
-        reward_max = max(all_rewards)
-    else:
-        reward_max = 0.0
-
-    y_tick_step = 1000
-    y_lower = -6000
-    y_upper = int(math.ceil((reward_max + 0.05 * max(abs(reward_max), 1.0)) / y_tick_step) * y_tick_step)
-    if y_lower == y_upper:
-        y_upper = y_lower + y_tick_step
+    # Use fixed, pre-determined plotting range for consistent comparison across experiments.
+    # Top (upper) = 2000, Bottom (lower) = -16000, tick step = 2000
+    y_lower = -16000
+    y_upper = 2000
+    y_tick_step = 2000
     return y_lower, y_upper, y_tick_step
 
 
@@ -1322,8 +1316,8 @@ def main(**kwargs) -> None:
         "bonus_constant": 1.0,
         "sparse_fraction": 0.01,
         "wall_penalty": -100.0,
-        "stay_penalty": -0.2,
-        "move_penalty": -0.2,
+        "stay_penalty": 0.0,
+        "move_penalty": 0.0,
         "log_interval": 100,
         "eval_episodes": 200,
         "record_paths": True,
@@ -1534,10 +1528,18 @@ def main(**kwargs) -> None:
             print(f"Proposed bonus constant: {exp['bonus_constant']}")
             print(f"Proposed sparse reward only: {exp.get('use_sparse_reward_only', False)}")
             print(f"Proposed reward shaping: {exp.get('use_reward_shaping', False)}")
-        exp_move_penalty = reward_shaping_move_penalty if exp.get("use_reward_shaping", False) else 0.0
+        # Reward shaping: when enabled for this experiment, set both move and stay penalties to -0.2
+        default_move_penalty = config.get('move_penalty', 0.0)
+        default_stay_penalty = config.get('stay_penalty', 0.0)
+        if exp.get("use_reward_shaping", False):
+            exp_move_penalty = -0.2
+            exp_stay_penalty = -0.2
+        else:
+            exp_move_penalty = default_move_penalty
+            exp_stay_penalty = default_stay_penalty
         print(f"Maze size: {maze_size}x{maze_size}")
         print(f"Wall penalty: {wall_penalty}")
-        print(f"Stay penalty: {stay_penalty}")
+        print(f"Stay penalty: {exp_stay_penalty}")
         print(f"Move penalty: {exp_move_penalty}")
         print(f"Episodes: {episodes}")
         print(f"Horizon: {horizon}")
@@ -1554,7 +1556,7 @@ def main(**kwargs) -> None:
             start=(0, 0),
             goal=(maze_size - 1, maze_size - 1),
             wall_penalty=wall_penalty,
-            stay_penalty=stay_penalty,
+            stay_penalty=exp_stay_penalty,
             move_penalty=exp_move_penalty
         )
 
@@ -1675,7 +1677,7 @@ def main(**kwargs) -> None:
                 "maze_size": env.size,
                 "horizon": horizon,
                 "wall_penalty": wall_penalty,
-                "stay_penalty": stay_penalty,
+                "stay_penalty": exp_stay_penalty,
                 "move_penalty": exp_move_penalty,
             },
             "algorithm_params": {
