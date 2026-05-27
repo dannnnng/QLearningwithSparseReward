@@ -30,25 +30,25 @@ The script currently includes:
 
 - `QLearningUCBHoeffdingSparse`
   - Used for both `Proposed` and `UCB-H`
-  - Group-specific settings can be assigned to `Proposed`
+  - Experiment-specific settings can be assigned to `Proposed`
 - `QLearningEpsilonGreedy`
 
 ## Current Experiment Setup
 
-The current experiment batch is defined inside `main()` and uses four groups:
+The current experiment batch is defined inside `main()` and uses four experiments:
 
 - `maze1_20x20_a`
 - `maze1_20x20_b`
 - `maze1_20x20_c`
 - `maze1_20x20_d`
 
-Each group runs the following three methods:
+Each experiment runs the following three methods:
 
 - `Proposed`
 - `UCB-H`
 - `ε-greedy`
 
-The current group-level `Proposed` settings are:
+The current experiment-level `Proposed` settings are:
 
 1. Experiment `a`
    - no reward shaping
@@ -154,5 +154,5 @@ Important sections:
 ## Notes
 
 - Some historical experiment configuration code remains in the file but is no longer the active path; the effective experiment batch is the one built from `scenario_templates` and `algorithm_templates` inside `main()`.
-- Figure naming and group settings are currently hardcoded for the present experiment design.
+- Figure naming and experiment settings are currently hardcoded for the present experiment design.
 
