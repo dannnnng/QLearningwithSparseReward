@@ -1,4 +1,4 @@
-## Qlearning Maze Reinforcement Learning Experiments
+## Q-learning Maze Reinforcement Learning Experiments
 
 This repository contains a single Python script, [QLearningUCBsparse-Maze1.py](./QLearningUCBsparse-Maze1.py), for running maze-navigation reinforcement learning experiments and exporting publication-style figures.
 
