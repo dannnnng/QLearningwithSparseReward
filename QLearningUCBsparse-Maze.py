@@ -267,10 +267,10 @@ def select_best_path(stats: TrainingStats, goal: Coordinate) -> List[Coordinate]
 def compute_reward_axis(reward_series_list: Sequence[Sequence[float]]) -> Tuple[int, int, int]:
     """Computes a shared y-axis range and tick step for reward plots."""
     # Use fixed, pre-determined plotting range for consistent comparison across experiments.
-    # Top (upper) = 2000, Bottom (lower) = -16000, tick step = 2000
-    y_lower = -16000
-    y_upper = 2000
-    y_tick_step = 2000
+    # Top (upper) = 3000, Bottom (lower) = -15000, tick step = 1000
+    y_lower = -10000
+    y_upper = 3000
+    y_tick_step = 1000
     return y_lower, y_upper, y_tick_step
 
 
@@ -287,11 +287,11 @@ def plot_reward_trace(episodes: Sequence[int], rewards: Sequence[float],
     ax.set_box_aspect(1)
     ax.yaxis.set_label_coords(-0.14, 0.5)
     # No title per request.
-    plt.xlim(0, 200)
+    plt.xlim(0,1000)
     if y_lower is None or y_upper is None or y_tick_step is None:
         y_lower, y_upper, y_tick_step = compute_reward_axis([rewards])
     plt.ylim(y_lower, y_upper)
-    ax.set_xticks(np.arange(0, 201, 20))
+    ax.set_xticks(np.arange(0, 1001, 100))
     ax.set_yticks(np.arange(y_lower, y_upper + y_tick_step, y_tick_step))
     plt.setp(ax.get_xticklabels(), fontweight="bold")
     plt.setp(ax.get_yticklabels(), fontweight="bold")
@@ -327,13 +327,13 @@ def plot_reward_comparison_three(stats_a: TrainingStats, label_a: str,
     ax.set_box_aspect(1)
     ax.yaxis.set_label_coords(-0.14, 0.5)
     plt.grid(True, linestyle="--", alpha=0.3)
-    plt.xlim(0, 200)
+    plt.xlim(0, 1000)
     if y_lower is None or y_upper is None or y_tick_step is None:
         y_lower, y_upper, y_tick_step = compute_reward_axis(
             [stats_a.rewards, stats_b.rewards, stats_c.rewards]
         )
     plt.ylim(y_lower, y_upper)
-    ax.set_xticks(np.arange(0, 201, 20))
+    ax.set_xticks(np.arange(0, 1001, 100))
     ax.set_yticks(np.arange(y_lower, y_upper + y_tick_step, y_tick_step))
     plt.setp(ax.get_xticklabels(), fontweight="bold")
     plt.setp(ax.get_yticklabels(), fontweight="bold")
@@ -1119,7 +1119,7 @@ class QLearningEpsilonGreedy:
 
     def __init__(self, env: MazeEnv, horizon: int, episodes: int,
                  alpha: float = 0.2, gamma: float = 0.99,
-                 epsilon: float = 0.2, epsilon_min: float = 0.2,
+                 epsilon: float = 0.2, epsilon_min: float = 0,
                  epsilon_decay: float = 1.0, seed: Optional[int] = None,
                  use_sparse_reward_only: bool = False) -> None:
         self.env = env
@@ -1310,7 +1310,7 @@ def main(**kwargs) -> None:
         "maze_size": 15,
         "maze_seed": 1,
         "env_seed": 42,
-        "episodes": 200,
+        "episodes": 1000,
         "horizon": 2000,
         "failure_prob": 0.1,
         "bonus_constant": 1.0,
@@ -1319,7 +1319,7 @@ def main(**kwargs) -> None:
         "stay_penalty": 0.0,
         "move_penalty": 0.0,
         "log_interval": 100,
-        "eval_episodes": 200,
+        "eval_episodes": 300,
         "record_paths": True,
     }
 
@@ -1955,7 +1955,7 @@ if __name__ == "__main__":
                         help="原地不动惩罚值")
     parser.add_argument("--move_penalty", type=float, default=None,
                         help="普通移动惩罚值")
-    parser.add_argument("--episodes", type=int, default=200,
+    parser.add_argument("--episodes", type=int, default=1000,
                         help="训练回合数（默认200）")
     parser.add_argument("--horizon", type=int, default=2000,
                         help="每个episode的最大步数（默认2000）")
@@ -1966,3 +1966,4 @@ if __name__ == "__main__":
     kwargs = {k: v for k, v in vars(args).items() if v is not None}
 
     main(**kwargs)
+
