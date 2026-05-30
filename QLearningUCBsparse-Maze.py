@@ -319,7 +319,7 @@ def plot_reward_comparison_three(stats_a: TrainingStats, label_a: str,
     """Plots reward vs. episode for three runs on the same figure."""
     plt.figure(figsize=(6, 6))
     plt.plot(stats_a.episodes, stats_a.rewards, color="red", alpha=0.6, label=label_a)
-    plt.plot(stats_b.episodes, stats_b.rewards, color="#DAA520", alpha=0.6, label=label_b)
+    plt.plot(stats_b.episodes, stats_b.rewards, color="#2FEA17FE", alpha=0.6, label=label_b)
     plt.plot(stats_c.episodes, stats_c.rewards, color="blue", alpha=0.6, label=label_c)
     plt.xlabel("Episode", fontsize=14, fontweight="bold")
     plt.ylabel("Cumulative Reward for an Episode", fontsize=14, fontweight="bold")
@@ -1337,7 +1337,7 @@ def main(**kwargs) -> None:
     bonus_constant = config.get('bonus_constant', 0.1)
     sparse_fraction = config.get('sparse_fraction', 0.01)
     log_interval = config.get('log_interval', 100)
-    eval_episodes = config.get('eval_episodes', 200)
+    eval_episodes = config.get('eval_episodes', 500)
     record_paths = config.get('record_paths', True)
 
     if seed is None:
