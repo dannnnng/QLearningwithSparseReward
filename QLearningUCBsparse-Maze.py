@@ -287,11 +287,11 @@ def plot_reward_trace(episodes: Sequence[int], rewards: Sequence[float],
     ax.set_box_aspect(1)
     ax.yaxis.set_label_coords(-0.14, 0.5)
     # No title per request.
-    plt.xlim(0,1000)
+    plt.xlim(0,500)
     if y_lower is None or y_upper is None or y_tick_step is None:
         y_lower, y_upper, y_tick_step = compute_reward_axis([rewards])
     plt.ylim(y_lower, y_upper)
-    ax.set_xticks(np.arange(0, 1001, 100))
+    ax.set_xticks(np.arange(0, 501, 50))
     ax.set_yticks(np.arange(y_lower, y_upper + y_tick_step, y_tick_step))
     plt.setp(ax.get_xticklabels(), fontweight="bold")
     plt.setp(ax.get_yticklabels(), fontweight="bold")
@@ -319,7 +319,7 @@ def plot_reward_comparison_three(stats_a: TrainingStats, label_a: str,
     """Plots reward vs. episode for three runs on the same figure."""
     plt.figure(figsize=(6, 6))
     plt.plot(stats_a.episodes, stats_a.rewards, color="red", alpha=0.6, label=label_a)
-    plt.plot(stats_b.episodes, stats_b.rewards, color="black", alpha=0.6, label=label_b)
+    plt.plot(stats_b.episodes, stats_b.rewards, color="#DAA520", alpha=0.6, label=label_b)
     plt.plot(stats_c.episodes, stats_c.rewards, color="blue", alpha=0.6, label=label_c)
     plt.xlabel("Episode", fontsize=14, fontweight="bold")
     plt.ylabel("Cumulative Reward for an Episode", fontsize=14, fontweight="bold")
@@ -327,13 +327,13 @@ def plot_reward_comparison_three(stats_a: TrainingStats, label_a: str,
     ax.set_box_aspect(1)
     ax.yaxis.set_label_coords(-0.14, 0.5)
     plt.grid(True, linestyle="--", alpha=0.3)
-    plt.xlim(0, 1000)
+    plt.xlim(0, 500)
     if y_lower is None or y_upper is None or y_tick_step is None:
         y_lower, y_upper, y_tick_step = compute_reward_axis(
             [stats_a.rewards, stats_b.rewards, stats_c.rewards]
         )
     plt.ylim(y_lower, y_upper)
-    ax.set_xticks(np.arange(0, 1001, 100))
+    ax.set_xticks(np.arange(0, 501, 50))
     ax.set_yticks(np.arange(y_lower, y_upper + y_tick_step, y_tick_step))
     plt.setp(ax.get_xticklabels(), fontweight="bold")
     plt.setp(ax.get_yticklabels(), fontweight="bold")
@@ -1310,7 +1310,7 @@ def main(**kwargs) -> None:
         "maze_size": 15,
         "maze_seed": 1,
         "env_seed": 42,
-        "episodes": 1000,
+        "episodes": 500,
         "horizon": 2000,
         "failure_prob": 0.1,
         "bonus_constant": 1.0,
@@ -1319,7 +1319,7 @@ def main(**kwargs) -> None:
         "stay_penalty": 0.0,
         "move_penalty": 0.0,
         "log_interval": 100,
-        "eval_episodes": 300,
+        "eval_episodes": 500,
         "record_paths": True,
     }
 
@@ -1610,9 +1610,7 @@ def main(**kwargs) -> None:
                 f"reward={best_reward_value:.4f}"
             )
 
-        q_path = select_best_path(stats, env.goal)
-        if q_path is None:
-            q_path = agent.greedy_path_from_q(env, deterministic=True)
+        q_path = agent.greedy_path_from_q(env, deterministic=True)
         q_path_vis = os.path.join(
             exp_output_dir, "visualizations", f"q_greedy_path_{exp['output_name']}.pdf"
         )
