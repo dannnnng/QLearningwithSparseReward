@@ -12,6 +12,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib import colors
 from matplotlib import animation
+from matplotlib.lines import Line2D
 
 Coordinate = Tuple[int, int]
 
@@ -728,7 +729,7 @@ def save_maze_visualization(grid: np.ndarray, start: Coordinate, goal: Coordinat
     fig, ax = plt.subplots(figsize=(6, 6))
     cmap = colors.ListedColormap(["white", "black"])
     ax.imshow(grid, cmap=cmap, origin="upper")
-    ax.scatter(start[1], start[0], c="green", marker="o", s=60, label="Start")
+    ax.scatter(start[1], start[0], c="black", marker="o", s=60, label="Start")
     ax.scatter(goal[1], goal[0], c="red", marker="*", s=80, label="Goal")
     if path:
         rows = [coord[0] for coord in path]
@@ -738,9 +739,9 @@ def save_maze_visualization(grid: np.ndarray, start: Coordinate, goal: Coordinat
                     markerfacecolor="none", markeredgecolor="blue",
                     color="blue", label="Path")
         elif marker_style == "black_dashed":
-            ax.plot(cols, rows, color="black", linewidth=1.2, linestyle="--",
+            ax.plot(cols, rows, color="#2FEA17FE", linewidth=1.2, linestyle="-",
                     marker="^", markersize=3, markerfacecolor="none",
-                    markeredgecolor="black", markevery=2, label="Path")
+                    markeredgecolor="#2FEA17FE", markevery=2, label="Path")
         else:
             ax.plot(cols, rows, color="blue", linewidth=1.5, label="Path")
     ax.set_xticks([])
@@ -764,31 +765,39 @@ def save_maze_visualization_compare_three(grid: np.ndarray, start: Coordinate, g
     fig, ax = plt.subplots(figsize=(6, 6))
     cmap = colors.ListedColormap(["white", "black"])
     ax.imshow(grid, cmap=cmap, origin="upper")
-    ax.scatter(start[1], start[0], c="green", marker="o", s=60, label="Start")
-    ax.scatter(goal[1], goal[0], c="red", marker="*", s=80, label="Goal")
+    ax.scatter(start[1], start[0], c="black", marker="o", s=60)
+    ax.scatter(goal[1], goal[0], c="red", marker="*", s=80)
 
     if path_a:
         a_rows = [coord[0] for coord in path_a]
         a_cols = [coord[1] for coord in path_a]
-        ax.plot(a_cols, a_rows, color="red", linewidth=1.5, linestyle="--",
-                label=label_a)
+        ax.plot(a_cols, a_rows, color="red", linewidth=1.5, linestyle="--")
 
     if path_b:
         b_rows = [coord[0] for coord in path_b]
         b_cols = [coord[1] for coord in path_b]
-        ax.plot(b_cols, b_rows, color="black", linewidth=1.2, linestyle="-",
-                label=label_b)
+        ax.plot(b_cols, b_rows, color="#2FEA17FE", linewidth=1.2, linestyle="-")
 
     if path_c:
         c_rows = [coord[0] for coord in path_c]
         c_cols = [coord[1] for coord in path_c]
         ax.plot(c_cols, c_rows, linestyle="None", marker="o", markersize=3,
                 markerfacecolor="none", markeredgecolor="blue",
-                color="blue", label=label_c)
+                color="blue")
 
     ax.set_xticks([])
     ax.set_yticks([])
-    ax.legend(loc="lower left")
+    legend_handles = [
+        Line2D([0], [0], linestyle="None", marker="o", markersize=6,
+               markerfacecolor="black", markeredgecolor="black", color="black", label="Start"),
+        Line2D([0], [0], linestyle="None", marker="*", markersize=8,
+               markerfacecolor="red", markeredgecolor="red", color="red", label="Goal"),
+        Line2D([0], [0], color="red", linewidth=1.5, linestyle="--", label=label_a),
+        Line2D([0], [0], color="#2FEA17FE", linewidth=1.2, linestyle="-", label=label_b),
+        Line2D([0], [0], linestyle="None", marker="o", markersize=4,
+               markerfacecolor="none", markeredgecolor="blue", color="blue", label=label_c),
+    ]
+    ax.legend(handles=legend_handles, loc="lower left")
     plt.tight_layout()
     plt.savefig(out_path, dpi=200, bbox_inches="tight", pad_inches=0)
     plt.close(fig)
@@ -817,7 +826,7 @@ def save_episode_animation(grid: np.ndarray, start: Coordinate, goal: Coordinate
     fig, ax = plt.subplots(figsize=(6, 6))
     cmap = colors.ListedColormap(["white", "black"])
     ax.imshow(grid, cmap=cmap, origin="upper")
-    ax.scatter(start[1], start[0], c="green", marker="o", s=60, label="Start")
+    ax.scatter(start[1], start[0], c="black", marker="o", s=60, label="Start")
     ax.scatter(goal[1], goal[0], c="red", marker="*", s=80, label="Goal")
     path_line, = ax.plot([], [], color="blue", linewidth=1.5)
     ax.set_xticks([])
