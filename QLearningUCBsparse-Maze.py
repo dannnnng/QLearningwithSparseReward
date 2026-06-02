@@ -3,6 +3,8 @@ import math
 import random
 import time
 import os
+import heapq
+from collections import deque
 from dataclasses import dataclass
 from typing import List, Sequence, Tuple, Optional, Dict
 
@@ -98,7 +100,6 @@ class MazeEnv:
         reward = 0.0
         hit_wall = False
         is_stay = False
-        was_at_goal = self.state == self.goal
 
         # 尝试移动
         dr, dc = self.ACTIONS[action]
@@ -126,9 +127,7 @@ class MazeEnv:
         reached_goal = next_coord == self.goal
         done = self.step_count >= self.horizon
 
-        if was_at_goal and is_stay:
-            reward = 0.0
-        elif reached_goal:
+        if reached_goal:
             reward = 1.0
         elif hit_wall:
             reward = self.wall_penalty
@@ -236,6 +235,16 @@ class TrainingStats:
     episode_paths: List[List[Coordinate]] | None = None
 
 
+@dataclass
+class QPathSelection:
+    path: List[Coordinate]
+    selection: str
+    reaches_goal: bool
+    is_strict_max_q: bool
+    is_plotted: bool
+    q_score: float
+
+
 def sparse_goal_reward(next_coord: Coordinate, goal: Coordinate) -> float:
     """Returns a pure sparse reward: 1 on goal, otherwise 0."""
     return 1.0 if next_coord == goal else 0.0
@@ -262,6 +271,364 @@ def select_best_path(stats: TrainingStats, goal: Coordinate) -> List[Coordinate]
     if best_idx is None:
         return None
     return stats.episode_paths[best_idx]
+
+
+def best_q_actions(q_table: np.ndarray, state: int) -> np.ndarray:
+    """Returns all actions tied for the highest Q-value in a state."""
+    q_values = q_table[state]
+    max_value = np.max(q_values)
+    return np.flatnonzero(np.isclose(q_values, max_value))
+
+
+def transition_without_side_effect(env: MazeEnv, coord: Coordinate, action: int) -> Coordinate:
+    """Computes the next coordinate for an action without mutating the environment."""
+    dr, dc = env.ACTIONS[action]
+    if dr == 0 and dc == 0:
+        return coord
+
+    target_r = coord[0] + dr
+    target_c = coord[1] + dc
+    if not (0 <= target_r < env.size and 0 <= target_c < env.size):
+        return coord
+    if env.grid[target_r, target_c] != 0:
+        return coord
+    return (target_r, target_c)
+
+
+def path_uses_only_actual_max_q_moves(q_table: np.ndarray, env: MazeEnv,
+                                      path: Sequence[Coordinate]) -> bool:
+    """Checks whether each path step follows one of the state's max-Q actions."""
+    if len(path) < 2:
+        return False
+
+    for coord, next_coord in zip(path, path[1:]):
+        state = env.coord_to_state(coord)
+        valid_next_coords = {
+            transition_without_side_effect(env, coord, int(action))
+            for action in best_q_actions(q_table, state)
+        }
+        if next_coord == coord or next_coord not in valid_next_coords:
+            return False
+    return True
+
+
+def actions_matching_transition(env: MazeEnv, coord: Coordinate,
+                                next_coord: Coordinate) -> List[int]:
+    """Returns actions that can explain a coordinate transition."""
+    if coord == env.goal and next_coord == env.goal:
+        return list(range(env.n_actions))
+    if coord == next_coord:
+        return [env.n_actions - 1]
+    return [
+        action
+        for action in range(env.n_actions)
+        if transition_without_side_effect(env, coord, action) == next_coord
+    ]
+
+
+def path_q_score(q_table: np.ndarray, env: MazeEnv,
+                 path: Sequence[Coordinate]) -> float:
+    """Scores a plotted path by average Q-value consistent with each shown step."""
+    if len(path) < 2:
+        return 0.0
+
+    score = 0.0
+    step_count = 0
+    for coord, next_coord in zip(path, path[1:]):
+        state = env.coord_to_state(coord)
+        matching_actions = actions_matching_transition(env, coord, next_coord)
+        if not matching_actions:
+            continue
+        score += float(np.max(q_table[state, matching_actions]))
+        step_count += 1
+    if step_count == 0:
+        return 0.0
+    return score / step_count
+
+
+def path_has_actual_moves(path: Sequence[Coordinate]) -> bool:
+    """Checks whether the path contains at least one visible move."""
+    return any(
+        path[i] != path[i + 1]
+        for i in range(max(0, len(path) - 1))
+    )
+
+
+def path_reaches_goal(path: Sequence[Coordinate], goal: Coordinate) -> bool:
+    """Checks whether the path reaches the goal at any point."""
+    return any(coord == goal for coord in path)
+
+
+def truncate_path_at_goal(path: Sequence[Coordinate], goal: Coordinate) -> List[Coordinate]:
+    """Returns the path up to and including the first goal visit."""
+    for idx, coord in enumerate(path):
+        if coord == goal:
+            return list(path[:idx + 1])
+    return list(path)
+
+
+def loop_erased_path(path: Sequence[Coordinate]) -> List[Coordinate]:
+    """Removes stays and loops while preserving a route that actually occurred."""
+    erased: List[Coordinate] = []
+    positions: Dict[Coordinate, int] = {}
+
+    for coord in path:
+        if erased and coord == erased[-1]:
+            continue
+        if coord in positions:
+            keep_until = positions[coord]
+            for removed in erased[keep_until + 1:]:
+                positions.pop(removed, None)
+            erased = erased[:keep_until + 1]
+            continue
+        positions[coord] = len(erased)
+        erased.append(coord)
+
+    return erased
+
+
+def select_training_path_by_q(q_table: np.ndarray, env: MazeEnv,
+                              stats: TrainingStats | None,
+                              require_goal: bool) -> Tuple[List[Coordinate], float] | None:
+    """Selects a short loop-erased path that actually occurred during training."""
+    if stats is None or not stats.episode_paths:
+        return None
+
+    best_path: List[Coordinate] | None = None
+    best_score = float("-inf")
+    best_length = float("inf")
+
+    for path in stats.episode_paths:
+        if not path:
+            continue
+        reaches_goal = path_reaches_goal(path, env.goal)
+        if require_goal and not reaches_goal:
+            continue
+        display_path = loop_erased_path(truncate_path_at_goal(path, env.goal))
+        if require_goal and not path_reaches_goal(display_path, env.goal):
+            continue
+        has_moves = path_has_actual_moves(display_path)
+        if not has_moves:
+            continue
+
+        score = path_q_score(q_table, env, display_path)
+        path_length = len(display_path)
+
+        if (
+            path_length < best_length
+            or (path_length == best_length and score > best_score)
+        ):
+            best_path = display_path
+            best_score = score
+            best_length = path_length
+
+    if best_path is None:
+        return None
+    return best_path, best_score
+
+
+def strict_max_q_path_to_goal(q_table: np.ndarray, env: MazeEnv,
+                              horizon: int) -> List[Coordinate] | None:
+    """Finds a goal path using only actual max-Q moves."""
+    start = env.start
+    goal = env.goal
+    if start == goal:
+        return [start]
+
+    queue = deque([(start, [start])])
+    visited = {start}
+
+    while queue:
+        coord, path = queue.popleft()
+        if coord == goal:
+            return path
+        if len(path) - 1 >= horizon:
+            continue
+
+        state = env.coord_to_state(coord)
+        candidates: List[Tuple[int, Coordinate]] = []
+        for action in best_q_actions(q_table, state):
+            next_coord = transition_without_side_effect(env, coord, int(action))
+            if next_coord == coord:
+                continue
+            distance = abs(next_coord[0] - goal[0]) + abs(next_coord[1] - goal[1])
+            candidates.append((distance, next_coord))
+
+        for _, next_coord in sorted(candidates):
+            if next_coord in visited:
+                continue
+            visited.add(next_coord)
+            queue.append((next_coord, path + [next_coord]))
+
+    return None
+
+
+def high_q_real_path_to_goal(q_table: np.ndarray, env: MazeEnv,
+                             horizon: int) -> List[Coordinate] | None:
+    """Finds a real goal path with minimal Q loss relative to local max-Q actions."""
+    start = env.start
+    goal = env.goal
+    if start == goal:
+        return [start]
+
+    counter = 0
+    queue: List[Tuple[float, int, int, int, Coordinate, List[Coordinate]]] = []
+    start_distance = abs(start[0] - goal[0]) + abs(start[1] - goal[1])
+    heapq.heappush(queue, (0.0, 0, start_distance, counter, start, [start]))
+    best_seen: Dict[Coordinate, Tuple[float, int]] = {start: (0.0, 0)}
+
+    while queue:
+        regret, steps, _, _, coord, path = heapq.heappop(queue)
+        if coord == goal:
+            return path
+        if steps >= horizon:
+            continue
+        if (regret, steps) != best_seen.get(coord):
+            continue
+
+        state = env.coord_to_state(coord)
+        best_local_q = float(np.max(q_table[state]))
+        moving_candidates: List[Tuple[float, int, Coordinate]] = []
+        for action in range(env.n_actions):
+            next_coord = transition_without_side_effect(env, coord, action)
+            if next_coord == coord:
+                continue
+            moving_candidates.append((float(q_table[state, action]), action, next_coord))
+
+        for action_q, action, next_coord in moving_candidates:
+            next_steps = steps + 1
+            next_regret = regret + max(0.0, best_local_q - action_q)
+            previous = best_seen.get(next_coord)
+            if previous is not None and previous <= (next_regret, next_steps):
+                continue
+
+            best_seen[next_coord] = (next_regret, next_steps)
+            distance = abs(next_coord[0] - goal[0]) + abs(next_coord[1] - goal[1])
+            counter += 1
+            heapq.heappush(
+                queue,
+                (next_regret, next_steps, distance, counter, next_coord, path + [next_coord])
+            )
+
+    return None
+
+
+def true_max_q_failed_rollout(q_table: np.ndarray, env: MazeEnv,
+                              horizon: int) -> List[Coordinate]:
+    """Rolls out the actual deterministic max-Q policy for diagnostics."""
+    goal = env.goal
+    coord = env.reset()
+    path = [coord]
+    state = env.coord_to_state(coord)
+    visited_states = {state}
+
+    for _ in range(horizon):
+        candidates = []
+        for action in best_q_actions(q_table, state):
+            next_coord = transition_without_side_effect(env, coord, int(action))
+            distance = abs(next_coord[0] - goal[0]) + abs(next_coord[1] - goal[1])
+            no_move = 1 if next_coord == coord else 0
+            candidates.append((no_move, distance, int(action), next_coord))
+
+        if not candidates:
+            break
+
+        _, _, action, _ = min(candidates)
+        coord, _, done, _ = env.step(action)
+        path.append(coord)
+        state = env.coord_to_state(coord)
+        if coord == goal or done or state in visited_states:
+            break
+        visited_states.add(state)
+
+    return path
+
+
+def deterministic_max_q_rollout(q_table: np.ndarray, env: MazeEnv,
+                                horizon: int) -> List[Coordinate]:
+    """Rolls out the fixed argmax-Q policy without searching among tied actions."""
+    coord = env.reset()
+    path = [coord]
+    state = env.coord_to_state(coord)
+    visited_states = {state}
+
+    for _ in range(horizon):
+        action = int(np.argmax(q_table[state]))
+        coord, _, done, _ = env.step(action)
+        path.append(coord)
+        state = env.coord_to_state(coord)
+        if coord == env.goal or done or state in visited_states:
+            break
+        visited_states.add(state)
+
+    return path
+
+
+def select_q_path_for_plot(q_table: np.ndarray, env: MazeEnv,
+                           horizon: int,
+                           stats: TrainingStats | None = None) -> QPathSelection:
+    """Selects a truthful route for plots without inventing paths.
+
+    Priority:
+    1. Fixed argmax-Q rollout, if it reaches the goal.
+    2. Shortest loop-erased training path that actually reached the goal.
+    3. Shortest loop-erased training path with visible movement.
+    4. Fixed argmax-Q rollout, even if it fails.
+    """
+    greedy_path = deterministic_max_q_rollout(q_table, env, horizon)
+    greedy_reaches_goal = path_reaches_goal(greedy_path, env.goal)
+    greedy_score = path_q_score(q_table, env, greedy_path)
+    if greedy_reaches_goal and path_has_actual_moves(greedy_path):
+        return QPathSelection(
+            path=greedy_path,
+            selection="deterministic_max_q_policy_rollout",
+            reaches_goal=True,
+            is_strict_max_q=True,
+            is_plotted=True,
+            q_score=greedy_score,
+        )
+
+    successful_training_path = select_training_path_by_q(
+        q_table, env, stats, require_goal=True
+    )
+    if successful_training_path is not None:
+        path, score = successful_training_path
+        return QPathSelection(
+            path=path,
+            selection="actual_training_success_path_shortest_loop_erased_not_policy",
+            reaches_goal=True,
+            is_strict_max_q=path_uses_only_actual_max_q_moves(q_table, env, path),
+            is_plotted=True,
+            q_score=score,
+        )
+
+    moving_training_path = select_training_path_by_q(
+        q_table, env, stats, require_goal=False
+    )
+    if moving_training_path is not None:
+        path, score = moving_training_path
+        return QPathSelection(
+            path=path,
+            selection="actual_training_moving_path_shortest_loop_erased_no_goal",
+            reaches_goal=path_reaches_goal(path, env.goal),
+            is_strict_max_q=path_uses_only_actual_max_q_moves(q_table, env, path),
+            is_plotted=True,
+            q_score=score,
+        )
+
+    return QPathSelection(
+        path=greedy_path,
+        selection="failed_deterministic_max_q_policy_rollout",
+        reaches_goal=greedy_reaches_goal,
+        is_strict_max_q=True,
+        is_plotted=bool(greedy_path),
+        q_score=greedy_score,
+    )
+
+
+def q_greedy_path_to_goal(q_table: np.ndarray, env: MazeEnv, horizon: int) -> List[Coordinate]:
+    """Returns the selected Q-value path used by route visualizations."""
+    return select_q_path_for_plot(q_table, env, horizon).path
 
 
 def compute_reward_axis(reward_series_list: Sequence[Sequence[float]]) -> Tuple[int, int, int]:
@@ -409,7 +776,7 @@ def save_maze_visualization_compare_three(grid: np.ndarray, start: Coordinate, g
     if path_b:
         b_rows = [coord[0] for coord in path_b]
         b_cols = [coord[1] for coord in path_b]
-        ax.plot(b_cols, b_rows, color="black", linewidth=1.2,
+        ax.plot(b_cols, b_rows, color="black", linewidth=1.2, linestyle="-",
                 label=label_b)
 
     if path_c:
@@ -425,6 +792,16 @@ def save_maze_visualization_compare_three(grid: np.ndarray, start: Coordinate, g
     plt.tight_layout()
     plt.savefig(out_path, dpi=200, bbox_inches="tight", pad_inches=0)
     plt.close(fig)
+    return out_path
+
+
+def save_path_coordinates(path: Sequence[Coordinate], out_path: str) -> str:
+    """Saves a path as step,row,col records for checking plotted Q-greedy routes."""
+    os.makedirs(os.path.dirname(out_path), exist_ok=True)
+    with open(out_path, "w", encoding="utf-8") as f:
+        f.write("step,row,col\n")
+        for step, (row, col) in enumerate(path):
+            f.write(f"{step},{row},{col}\n")
     return out_path
 
 
@@ -778,36 +1155,7 @@ class QLearningUCBHoeffdingSparse:
     def greedy_path_from_q(self, env: MazeEnv, deterministic: bool = True,
                            episode_seed: Optional[int] = None) -> List[Coordinate]:
         """Follows the greedy policy derived from the Q-table to get a path."""
-        # 创建评估用的随机数池
-        if episode_seed is None:
-            # 从全局随机数池获取一个种子
-            episode_seed = int(self.global_random_pool.get_random() * 1000000)
-        eval_pool = RandomNumberPool(pool_size=1000, seed=episode_seed)
-
-        coord = env.reset()
-        coords = [coord]
-        state = env.coord_to_state(coord)
-
-        for h in range(self.H):
-            # 为每个step创建独立的随机数池
-            step_pool = RandomNumberPool(pool_size=100, seed=episode_seed + h * 100)
-
-            q_values = self.Q[state]
-            max_value = np.max(q_values)
-            max_actions = np.flatnonzero(np.isclose(q_values, max_value))
-
-            if deterministic:
-                action = int(max_actions[0])
-            else:
-                # 使用step的随机数池随机选择
-                action = int(max_actions[step_pool.get_random_int(0, len(max_actions))])
-
-            coord, _, done, _ = env.step(action)
-            coords.append(coord)
-            state = env.coord_to_state(coord)
-            if done:
-                break
-        return coords
+        return q_greedy_path_to_goal(self.Q, env, self.H)
 
     def rollout(self, env: MazeEnv, episode_seed: Optional[int] = None) -> Tuple[List[Coordinate], float, bool]:
         """Follows the greedy policy for a single episode and returns the positions, total reward, and success status."""
@@ -1261,26 +1609,7 @@ class QLearningEpsilonGreedy:
 
     def greedy_path_from_q(self, env: MazeEnv, deterministic: bool = True) -> List[Coordinate]:
         """Follows the greedy policy derived from the Q-table to get a path."""
-        coord = env.reset()
-        coords = [coord]
-        state = env.coord_to_state(coord)
-
-        for _ in range(self.H):
-            q_values = self.Q[state]
-            max_value = np.max(q_values)
-            max_actions = np.flatnonzero(np.isclose(q_values, max_value))
-            if deterministic or len(max_actions) == 1:
-                action = int(max_actions[0])
-            else:
-                action = int(self.rng.choice(max_actions))
-
-            coord, _, done, _ = env.step(action)
-            coords.append(coord)
-            state = env.coord_to_state(coord)
-            if done:
-                break
-
-        return coords
+        return q_greedy_path_to_goal(self.Q, env, self.H)
 
 
 def ensure_output_dir() -> str:
@@ -1486,7 +1815,7 @@ def main(**kwargs) -> None:
 
     reward_axis_series: List[Sequence[float]] = []
     group_results_all: Dict[str, Dict[str, TrainingStats]] = {}
-    group_paths_all: Dict[str, Dict[str, List[Coordinate]]] = {}
+    q_optimal_paths_all: Dict[str, Dict[str, List[Coordinate]]] = {}
     scenario_meta: Dict[str, Dict[str, object]] = {}
 
     for exp in experiments:
@@ -1610,7 +1939,14 @@ def main(**kwargs) -> None:
                 f"reward={best_reward_value:.4f}"
             )
 
-        q_path = agent.greedy_path_from_q(env, deterministic=True)
+        q_path_result = select_q_path_for_plot(agent.Q, env, horizon, stats)
+        q_path_for_plot = q_path_result.path
+        q_path_selection = q_path_result.selection
+        q_path_reaches_goal = q_path_result.reaches_goal
+        q_path_is_strict = q_path_result.is_strict_max_q
+        q_path_is_valid_for_plot = q_path_result.is_plotted
+        q_path_score = q_path_result.q_score
+        training_reached_goal = any(stats.successes)
         q_path_vis = os.path.join(
             exp_output_dir, "visualizations", f"q_greedy_path_{exp['output_name']}.pdf"
         )
@@ -1621,10 +1957,16 @@ def main(**kwargs) -> None:
         else:
             marker_style = "line"
         save_maze_visualization(
-            env.grid, env.start, env.goal, q_path, q_path_vis,
+            env.grid, env.start, env.goal, q_path_for_plot, q_path_vis,
             marker_style=marker_style
         )
-        group_paths_all.setdefault(scenario_key, {})[exp["output_name"]] = q_path
+        q_path_csv = os.path.join(
+            exp_output_dir, "data", f"q_optimal_path_{exp['output_name']}.csv"
+        )
+        save_path_coordinates(q_path_for_plot, q_path_csv)
+        print(f"Q-value path saved to: {q_path_vis} ({q_path_selection})")
+        print(f"Q-value optimal path coordinates saved to: {q_path_csv}")
+        q_optimal_paths_all.setdefault(scenario_key, {})[exp["output_name"]] = q_path_for_plot
 
         if record_paths and stats.episode_paths:
             anim_path = os.path.join(
@@ -1697,6 +2039,21 @@ def main(**kwargs) -> None:
                 "evaluation_avg_reward": avg_reward,
                 "demo_success": success,
                 "demo_stay_count": stay_count,
+                "q_optimal_path_length": len(q_path_for_plot),
+                "q_optimal_path_reaches_goal": q_path_reaches_goal,
+                "q_optimal_path_selection": q_path_selection,
+                "q_optimal_path_q_score": q_path_score,
+                "q_optimal_path_is_strict_max_q": q_path_is_strict,
+                "q_optimal_path_training_reached_goal": training_reached_goal,
+                "q_optimal_path_is_plotted": q_path_is_valid_for_plot,
+                "q_optimal_path_has_actual_moves": any(
+                    q_path_for_plot[i] != q_path_for_plot[i + 1]
+                    for i in range(max(0, len(q_path_for_plot) - 1))
+                ),
+                "q_optimal_path_all_moves_are_actual": all(
+                    q_path_for_plot[i] != q_path_for_plot[i + 1]
+                    for i in range(max(0, len(q_path_for_plot) - 1))
+                ),
             }
         }
 
@@ -1739,7 +2096,7 @@ def main(**kwargs) -> None:
             y_tick_step=shared_y_tick_step
         )
 
-    for scenario_key, paths in group_paths_all.items():
+    for scenario_key, paths in q_optimal_paths_all.items():
         if "ucb" not in paths or "ucb_h" not in paths or "eps" not in paths:
             continue
         maze_seed = int(scenario_meta[scenario_key]["maze_seed"])
@@ -1953,8 +2310,8 @@ if __name__ == "__main__":
                         help="原地不动惩罚值")
     parser.add_argument("--move_penalty", type=float, default=None,
                         help="普通移动惩罚值")
-    parser.add_argument("--episodes", type=int, default=1000,
-                        help="训练回合数（默认200）")
+    parser.add_argument("--episodes", type=int, default=500,
+                        help="训练回合数（默认500）")
     parser.add_argument("--horizon", type=int, default=2000,
                         help="每个episode的最大步数（默认2000）")
 
@@ -1964,4 +2321,3 @@ if __name__ == "__main__":
     kwargs = {k: v for k, v in vars(args).items() if v is not None}
 
     main(**kwargs)
-
