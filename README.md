@@ -1,109 +1,115 @@
-## Q-learning Maze Reinforcement Learning Experiments
+# Maze RL Experiments
 
-This repository contains a single Python script, [QLearningUCBsparse-Maze1.py](./QLearningUCBsparse-Maze1.py), for running maze-navigation reinforcement learning experiments and exporting publication-style figures.
+This repository is centered on one script:
 
-The script compares three methods on the same maze:
+- `QLearningUCBsparse-Maze1.py`
 
-- `Proposed`
-- `UCB-H`
-- `ε-greedy`
+It runs maze-navigation reinforcement-learning experiments, exports publication-style figures, and saves per-run data, paths, animations, and Q-table summaries.
 
-It also exports:
+## Current Algorithms
 
-- reward curves
-- path visualizations
-- path comparison figures
-- GIF animations of episode trajectories
-- Q-table and visit-count summaries
-
-## Features
-
-- Deterministic maze generation from a seed
-- Configurable maze size, horizon, penalties, and number of episodes
-- Side-by-side comparison of three algorithms
-- Support for sparse-reward-only evaluation/training for selected methods
-- Automatic export of PDF figures for reports or papers
-
-## Algorithms
-
-The script currently includes:
-
-- `QLearningUCBHoeffdingSparse`
-  - Used for both `Proposed` and `UCB-H`
-  - Experiment-specific settings can be assigned to `Proposed`
-- `QLearningEpsilonGreedy`
-
-## Current Experiment Setup
-
-The current experiment batch is defined inside `main()` and uses four experiments:
-
-- `maze1_20x20_a`
-- `maze1_20x20_b`
-- `maze1_20x20_c`
-- `maze1_20x20_d`
-
-Each experiment runs the following three methods:
+The current code compares four methods:
 
 - `Proposed`
-- `UCB-H`
-- `ε-greedy`
+- `UCB-H [4]`
+- `Epsilon-greedy`
+- `HER [15]`
 
-The current `Proposed` settings are:
+Implementation mapping:
 
-1. Experiment `a`
-   - no reward shaping
-   - `move_penalty = 0.0`
-   - `stay_penalty = 0.0`
-   - `sparse_fraction = 0.01`
-2. Experiment `b`
-   - reward shaping enabled
-   - `move_penalty = -0.2`
-   - `stay_penalty = -0.2`
-   - `sparse_fraction = 1.0`
-3. Experiment `c`
-   - reward shaping enabled
-   - `move_penalty = -0.2`
-   - `stay_penalty = -0.2`
-   - `sparse_fraction = 1 / 2000`
-4. Experiment `d`
-   - reward shaping enabled
-   - `move_penalty = -0.2`
-   - `stay_penalty = -0.2`
-   - `sparse_fraction = 0.01`
+- `Proposed` and `UCB-H [4]`: `QLearningUCBHoeffdingSparse`
+- `Epsilon-greedy`: `QLearningEpsilonGreedy`
+- `HER [15]`: `QLearningHER`
 
-For the current code:
+## Environment Notes
 
-- reward shaping refers to setting the normal move penalty and stay penalty to `-0.2`
-- `UCB-H` is configured to train without reward shaping, so its normal move penalty and stay penalty is `0.0`
-- `ε-greedy` is configured to train without reward shaping, so its normal move penalty and stay penalty is `0.0`
-- wall and stay penalties still apply to all methods
+Important current behavior in the code:
 
-## Requirements
+- wall-hit actions are disabled from the Q-table before learning
+- `wall_penalty` is effectively forced to `0.0`
+- invalid actions are masked out for `Proposed`, `UCB-H [4]`, `Epsilon-greedy`, and `HER [15]`
+- reward-curve y-axis is fixed to `[-500, 2000]`
 
-Install Python 3.10+ and the following packages:
+With reward shaping enabled, the effective penalties are:
 
-```bash
-pip install numpy matplotlib pillow
-```
+- `move_penalty = -0.2`
+- `stay_penalty = -0.2`
 
-## Run
+Without reward shaping:
 
-Run the script directly:
+- `move_penalty = 0.0`
+- `stay_penalty = 0.0`
+
+## Default Run Settings
+
+The current batch in `main()` uses:
+
+- `maze_size = 20`
+- `maze_seed = 1`
+- `env_seed = 42`
+- `episodes = 500`
+- `horizon = 2000`
+- `failure_prob p = 0.1`
+- `eval_episodes = 500`
+- `record_paths = True`
+
+The current fixed maximum delta used by the code is:
+
+- `delta_max = 88341`
+
+In code this is exposed through `FIXED_DELTA_MAX`.
+
+## Figure Mapping
+
+Root-level output figures are currently:
+
+- `Fig1`, `Fig3`, `Fig5`, `Fig7`: learned-path comparison figures
+- `Fig2`, `Fig4`, `Fig6`, `Fig8`: reward-curve comparison figures
+
+Scene-to-figure mapping:
+
+| Group | Scenario label | Path figure | Curve figure |
+| --- | --- | --- | --- |
+| `a` | `maze1_20x20_a` | `Fig1.pdf` | `Fig2.pdf` |
+| `b` | `maze1_20x20_b` | `Fig3.pdf` | `Fig4.pdf` |
+| `c` | `maze1_20x20_c` | `Fig5.pdf` | `Fig6.pdf` |
+| `d` | `maze1_20x20_d` | `Fig7.pdf` | `Fig8.pdf` |
+
+## Current Experiment Groups
+
+The four groups differ only in the `Proposed` configuration. `UCB-H [4]`, `Epsilon-greedy`, and `HER [15]` are run in every group for comparison.
+
+`s` is implemented through `sparse_fraction * horizon`.
+
+| Group | Proposed `s` | Proposed `delta` | Sparse reward only | Reward shaping |
+| --- | --- | --- | --- | --- |
+| `a` | `200` | `1` | `False` | `True` |
+| `b` | `1` | `1` | `True` | `False` |
+| `c` | `1` | `1` | `False` | `True` |
+| `d` | `20` | `delta_max = 88341` | `False` | `True` |
+
+Equivalent `Proposed` `sparse_fraction` values under the default `horizon = 2000`:
+
+- group `a`: `200 / 2000 = 0.1`
+- group `b`: `1 / 2000 = 0.0005`
+- group `c`: `1 / 2000 = 0.0005`
+- group `d`: `20 / 2000 = 0.01`
+
+## UCB-H [4] Settings
+
+The baseline `UCB-H [4]` currently uses:
+
+- `sparse_fraction = 1.0`, i.e. `s = H`
+- `delta = delta_max = 88341`
+- no reward shaping
+- no sparse-reward-only override
+
+## CLI
+
+Run the batch:
 
 ```bash
 python QLearningUCBsparse-Maze1.py
-```
-
-Optional command-line arguments:
-
-```bash
-python QLearningUCBsparse-Maze1.py \
-  --seed 42 \
-  --episodes 200 \
-  --horizon 2000 \
-  --wall_penalty -100 (introduced by the environment, or equivalently we can cancel the invalid Q(x,a)) \
-  --stay_penalty -0.2 \
-  --move_penalty -0.2
 ```
 
 Supported CLI arguments:
@@ -116,43 +122,38 @@ Supported CLI arguments:
 - `--episodes`
 - `--horizon`
 
+Note:
+
+- the current code still exposes `--wall_penalty`, but wall-hit actions are disabled and the runtime wall penalty is forced to `0.0`
+
 ## Output Structure
 
-Each run creates a timestamp-named output directory containing subfolders such as:
+Each run creates a timestamp-named output directory. Inside it:
 
-- `plots/`
-- `visualizations/`
-- `animations/`
-- `data/`
-- `tables/`
+- root: `Fig1.pdf` to `Fig8.pdf`
+- per-scenario subdirectories such as `maze_seed_1_size_20_d/`
+- each scenario subdirectory contains:
+  - `plots/`
+  - `visualizations/`
+  - `animations/`
+  - `data/`
+  - `tables/`
 
-The script also exports summary PDF figures in the root of the output directory, currently named:
+Typical saved files:
 
-- `Fig1.pdf` to `Fig8.pdf`
+- `data/experiment_config_*.json`
+- `data/q_optimal_path_*.csv`
+- `plots/reward_vs_step_*.pdf`
+- `visualizations/q_greedy_path_*.pdf`
+- `tables/q_table_detailed_*.txt`
+- `tables/visit_counts_*.txt`
+- `animations/episode_paths_*.gif`
 
-These correspond to:
+## Dependencies
 
-- path comparison figures
-- reward comparison figures
+Python 3.10+ with:
 
-for groups `a`, `b`, `c`, and `d`.
-
-## Main File
-
-Core implementation is in:
-
-- [QLearningUCBsparse-Maze1.py](./QLearningUCBsparse-Maze1.py)
-
-Important sections:
-
-- `MazeEnv`: environment dynamics and rewards
-- `QLearningUCBHoeffdingSparse`: proposed / UCB-H implementation
-- `QLearningEpsilonGreedy`: epsilon-greedy baseline
-- plotting and export helpers
-- `main()`: experiment configuration and batch execution
-
-## Notes
-
-- Some historical experiment configuration code remains in the file but is no longer the active path; the effective experiment batch is the one built from `scenario_templates` and `algorithm_templates` inside `main()`.
-- Figure naming and experiment settings are currently hardcoded for the present experiment design.
+```bash
+pip install numpy matplotlib pillow
+```
 
