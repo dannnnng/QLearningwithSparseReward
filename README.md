@@ -2,7 +2,7 @@
 
 This repository is centered on one script:
 
-- `QLearningUCBsparse-Maze1.py`
+- `QLearningUCBsparse-Maze.py`
 
 It runs maze-navigation reinforcement-learning experiments, exports publication-style figures, and saves per-run data, paths, animations, and Q-table summaries.
 
