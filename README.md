@@ -2,7 +2,7 @@
 
 This repository is centered on one script:
 
-- `QLearningUCBsparse-Maze.py`
+- `QLearningUCBsparse-Maze1.py`
 
 It runs maze-navigation reinforcement-learning experiments, exports publication-style figures, and saves per-run data, paths, animations, and Q-table summaries.
 
@@ -156,4 +156,3 @@ Python 3.10+ with:
 ```bash
 pip install numpy matplotlib pillow
 ```
-
